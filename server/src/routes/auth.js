@@ -67,4 +67,41 @@ router.get('/me', requireAuth, (req, res) => {
   res.json({ user: publicUser(req.user) });
 });
 
+// POST /api/auth/guest — password-free join: the client sends just a display
+// name, the server creates a unique guest identity and returns a JWT, so the
+// rest of the app (REST + Socket.IO) works unchanged.
+const GUEST_NAME_RE = /^.{1,60}$/;
+
+function randomSecret() {
+  return uuidv4() + uuidv4();
+}
+
+router.post(
+  '/guest',
+  ah(async (req, res) => {
+    const { name } = req.body || {};
+    const displayName = typeof name === 'string' ? name.trim().slice(0, 60) : '';
+    if (!displayName || !GUEST_NAME_RE.test(displayName)) {
+      return res.status(400).json({ error: 'Please enter your name (1-60 characters).' });
+    }
+
+    // Unique, unguessable username; the random password hash means the
+    // /login endpoint can never be used to hijack a guest identity.
+    let username;
+    do {
+      username = 'guest_' + uuidv4().replace(/-/g, '').slice(0, 12);
+    } while (getUserByUsername(username));
+
+    const id = uuidv4();
+    const password_hash = await bcrypt.hash(randomSecret(), 10);
+    const now = Date.now();
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, display_name, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(id, username, password_hash, displayName, now);
+
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    res.status(201).json({ token: signToken(id), user: publicUser(user) });
+  })
+);
+
 module.exports = router;
