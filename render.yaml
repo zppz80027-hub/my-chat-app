@@ -1,0 +1,26 @@
+# Render Blueprint for the Chat App (one-click deploy from the repo root).
+# In the Render dashboard: New > Blueprint > connect this repo. Render reads
+# this file and creates the web service automatically.
+#
+# Note: this Blueprint targets Render's free tier, which has no persistent
+# disks. The database and uploaded files therefore live on the service's
+# ephemeral filesystem: they are wiped whenever the service restarts or
+# redeploys. For durable storage, upgrade to a paid plan and add a disk,
+# then set DB_PATH and UPLOAD_DIR to point at the disk's mount path.
+services:
+  - type: web
+    name: chatapp
+    runtime: node
+    plan: free
+    buildCommand: npm run install:all && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: ~20
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MAX_FILE_SIZE
+        value: 20GB
