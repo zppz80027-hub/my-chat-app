@@ -98,7 +98,7 @@ export default function ProfilePage() {
             <button
               onClick={uploadAvatar}
               disabled={uploading}
-              className="rounded-xl bg-mint-400 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
+              className="rounded-xl bg-mint-400 px-4 py-2 text-sm font-semibold text-gray-950 disabled:opacity-50"
             >
               {uploading ? 'Uploading…' : 'Upload'}
             </button>
@@ -150,11 +150,11 @@ export default function ProfilePage() {
         </button>
         <button
           onClick={() => {
-            if (window.confirm('Log out of Ping?')) logout();
+            if (window.confirm('Naam badalna hai? Tum nayi pehchaan se join karoge.')) logout();
           }}
           className="rounded-xl bg-ink-800 py-3 text-[15px] font-semibold text-red-400 hover:bg-ink-700"
         >
-          Log out
+          Switch name
         </button>
       </div>
     </div>
