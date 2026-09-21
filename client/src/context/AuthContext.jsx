@@ -31,19 +31,8 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  const login = useCallback(async (username, password) => {
-    const { token, user: u } = await api.post('/api/auth/login', { username, password });
-    setToken(token);
-    setUser(u);
-    return u;
-  }, []);
-
-  const register = useCallback(async (username, password, displayName) => {
-    const { token, user: u } = await api.post('/api/auth/register', {
-      username,
-      password,
-      displayName,
-    });
+  const join = useCallback(async (name) => {
+    const { token, user: u } = await api.post('/api/auth/guest', { name });
     setToken(token);
     setUser(u);
     return u;
@@ -58,7 +47,7 @@ export function AuthProvider({ children }) {
     setUser(u);
   }, []);
 
-  const value = { user, loading, login, register, logout, updateUser, token: getToken() };
+  const value = { user, loading, join, logout, updateUser, token: getToken() };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
