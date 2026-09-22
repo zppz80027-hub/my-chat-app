@@ -28,7 +28,7 @@ function Header() {
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-mint-400 text-xl">
           💬
         </span>
-        <span className="text-lg font-bold text-gray-100">Ping</span>
+        <span className="text-lg font-bold text-gray-100">Cloude</span>
       </div>
       <span
         className={`flex items-center gap-1.5 text-xs ${connected ? 'text-green-400' : 'text-gray-500'}`}
@@ -80,7 +80,7 @@ function Shell() {
   const [showNewChat, setShowNewChat] = useState(false);
 
   useEffect(() => {
-    document.title = unreadTotal > 0 ? `(${unreadTotal}) Ping — Chat` : 'Ping — Chat';
+    document.title = unreadTotal > 0 ? `(${unreadTotal}) Cloude app` : 'Cloude app';
   }, [unreadTotal]);
 
   if (loading) {
@@ -108,7 +108,7 @@ function Shell() {
     <div className="hidden h-full items-center justify-center bg-ink-950 md:flex">
       <EmptyState
         icon="💬"
-        title="Ping Web"
+        title="Cloude Web"
         body="Select a conversation to start messaging. Your chats stay in sync in real time."
       />
     </div>
