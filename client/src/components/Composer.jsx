@@ -77,8 +77,8 @@ export default function Composer({ convId, replyTo, onCancelReply, editing, onCa
     const list = [...files];
     if (list.length === 0) return;
     for (const file of list) {
-      if (file.size > 100 * 1024 * 1024) {
-        alert(`"${file.name}" is larger than 100 MB and was skipped.`);
+      if (file.size > 10 * 1024 ** 3) {
+        alert(`"${file.name}" is larger than 10 GB and was skipped.`);
         continue;
       }
       const isImage = file.type.startsWith('image/');
