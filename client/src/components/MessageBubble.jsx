@@ -1,7 +1,7 @@
 import React, { useMemo, useRef } from 'react';
 import { fileUrl } from '../utils/api';
 import { fmtSize, fmtTime } from '../utils/format';
-import Avatar from './Avatar';
+
 
 function Ticks({ message, otherIds }) {
   // otherIds: member ids other than me
@@ -121,11 +121,11 @@ export default function MessageBubble({
       id={`msg-${m.id}`}
     >
       <div className={`flex max-w-[82%] flex-col md:max-w-[70%] ${isOwn ? 'items-end' : 'items-start'}`}>
-        <Avatar
-          name={isOwn ? myName : senderName}
-          src={isOwn ? myAvatar : senderAvatar}
-          size={28}
-          className="mb-1"
+        <img
+          src="/icons/cloude-mascot.webp"
+          alt="Cloude"
+          
+          className="mb-1 h-7 w-7 rounded-full object-cover"
         />
         <div
           className={`bubble-press no-select relative rounded-2xl px-3 pb-1.5 pt-2 shadow ${
