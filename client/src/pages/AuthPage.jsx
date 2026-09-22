@@ -32,7 +32,7 @@ export default function AuthPage() {
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-mint-400 text-4xl">
             💬
           </div>
-          <h1 className="text-3xl font-bold text-gray-100">Ping</h1>
+          <h1 className="text-3xl font-bold text-gray-100">Cloude</h1>
           <p className="mt-1 text-sm text-gray-400">Fast, private messaging</p>
         </div>
 
