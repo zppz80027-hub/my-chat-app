@@ -103,8 +103,27 @@ export async function uploadChunk(uploadId, index, blob, signal) {
 
 /**
  * Chunked file upload with progress + cancel support.
+ * Uses parallel chunk uploads (4 at a time) with per-chunk retries so the
+ * connection stays saturated and flaky mobile networks don't kill the upload.
  * onProgress(0..1). Throws on abort (err.name === 'AbortError') or failure.
  */
+const UPLOAD_CONCURRENCY = 4;
+const CHUNK_MAX_RETRIES = 3;
+
+async function uploadChunkWithRetry(uploadId, index, blob, signal) {
+  for (let attempt = 1; attempt <= CHUNK_MAX_RETRIES; attempt++) {
+    try {
+      await uploadChunk(uploadId, index, blob, signal);
+      return;
+    } catch (err) {
+      if (signal.aborted) throw err;
+      if (attempt === CHUNK_MAX_RETRIES) throw err;
+      // Brief backoff before retrying a failed chunk.
+      await new Promise((r) => setTimeout(r, 600 * attempt));
+    }
+  }
+}
+
 export async function uploadFile(file, conversationId, onProgress, externalSignal) {
   const init = await api.post('/api/uploads/init', {
     filename: file.name,
@@ -123,11 +142,31 @@ export async function uploadFile(file, conversationId, onProgress, externalSigna
   }
   try {
     const total = Math.max(1, Math.ceil(file.size / chunkSize));
-    for (let i = 0; i < total; i++) {
-      const chunk = file.slice(i * chunkSize, (i + 1) * chunkSize);
-      await uploadChunk(uploadId, i, chunk, controller.signal);
-      onProgress && onProgress((i + 1) / total);
-    }
+    let nextIndex = 0;
+    let completed = 0;
+    let failed = null;
+
+    const worker = async () => {
+      for (;;) {
+        if (failed || controller.signal.aborted) return;
+        const i = nextIndex++;
+        if (i >= total) return;
+        const chunk = file.slice(i * chunkSize, (i + 1) * chunkSize);
+        try {
+          await uploadChunkWithRetry(uploadId, i, chunk, controller.signal);
+        } catch (err) {
+          failed = err;
+          controller.abort();
+          return;
+        }
+        completed += 1;
+        onProgress && onProgress(completed / total);
+      }
+    };
+
+    const workers = Math.min(UPLOAD_CONCURRENCY, total);
+    await Promise.all(Array.from({ length: workers }, () => worker()));
+    if (failed) throw failed;
     const done = await api.post('/api/uploads/complete', { uploadId });
     return done; // { fileId, url, filename, mimeType, size }
   } finally {
