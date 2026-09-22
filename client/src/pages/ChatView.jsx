@@ -280,7 +280,10 @@ export default function ChatView({ convId, onBack, isOverlay }) {
                   otherIds={otherIds}
                   showSender={isGroup && !isOwn}
                   senderName={isOwn ? null : sender?.displayName || m.senderDisplayName}
+                  senderAvatar={isOwn ? null : sender?.avatarUrl}
                   senderColor={colorFor(m.senderId)}
+                  myName={user.displayName}
+                  myAvatar={user.avatarUrl}
                   onReply={(msg, jump) => {
                     if (jump) handleReplyClick(msg, true);
                     else
