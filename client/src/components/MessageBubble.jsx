@@ -1,6 +1,7 @@
 import React, { useMemo, useRef } from 'react';
 import { fileUrl } from '../utils/api';
 import { fmtSize, fmtTime } from '../utils/format';
+import Avatar from './Avatar';
 
 function Ticks({ message, otherIds }) {
   // otherIds: member ids other than me
@@ -54,7 +55,10 @@ export default function MessageBubble({
   otherIds = [],
   showSender,
   senderName,
+  senderAvatar,
   senderColor,
+  myName,
+  myAvatar,
   onReply,
   onOpenMenu,
   onToggleReaction,
@@ -116,8 +120,15 @@ export default function MessageBubble({
       className={`flex w-full px-3 py-0.5 ${isOwn ? 'justify-end' : 'justify-start'}`}
       id={`msg-${m.id}`}
     >
-      <div
-        className={`bubble-press no-select relative max-w-[82%] rounded-2xl px-3 pb-1.5 pt-2 shadow md:max-w-[70%] ${
+      <div className={`flex max-w-[82%] flex-col md:max-w-[70%] ${isOwn ? 'items-end' : 'items-start'}`}>
+        <Avatar
+          name={isOwn ? myName : senderName}
+          src={isOwn ? myAvatar : senderAvatar}
+          size={28}
+          className="mb-1"
+        />
+        <div
+          className={`bubble-press no-select relative rounded-2xl px-3 pb-1.5 pt-2 shadow ${
           isOwn ? 'rounded-br-md bg-[#005c4b]' : 'rounded-bl-md bg-ink-800'
         } ${highlight ? 'ring-2 ring-mint-400' : ''} ${m._pending ? 'opacity-70' : ''}`}
         onTouchStart={handleTouchStart}
@@ -212,6 +223,7 @@ export default function MessageBubble({
           )}
           <span className="text-[11px] text-gray-300/80">{fmtTime(m.createdAt)}</span>
           {isOwn && !deleted && <Ticks message={m} otherIds={otherIds} />}
+        </div>
         </div>
       </div>
     </div>
