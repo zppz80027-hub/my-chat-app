@@ -1,6 +1,147 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { fileUrl } from '../utils/api';
 import { fmtSize, fmtTime } from '../utils/format';
+
+// Text me se URLs nikalo aur unhe playable/embeddable banao.
+function renderRichText(text) {
+  if (!text) return null;
+  const urlRegex = /(https?:\/\/[^\s<>"']+)/gi;
+  const parts = [];
+  let lastIdx = 0;
+  let match;
+  let key = 0;
+  while ((match = urlRegex.exec(text)) !== null) {
+    if (match.index > lastIdx) {
+      parts.push(
+        <span key={`t-${key++}`}>{text.slice(lastIdx, match.index)}</span>
+      );
+    }
+    const url = match[0];
+    parts.push(<LinkEmbed key={`u-${key++}`} url={url} />);
+    lastIdx = match.index + url.length;
+  }
+  if (lastIdx < text.length) {
+    parts.push(<span key={`t-${key++}`}>{text.slice(lastIdx)}</span>);
+  }
+  return parts.length > 0 ? parts : text;
+}
+
+// URL ko dekh kar sahi player/embed dikhao.
+function LinkEmbed({ url }) {
+  const [expanded, setExpanded] = useState(false);
+  const lower = url.toLowerCase();
+
+  // TeraBox / terashare link → share page ko iframe me kholo.
+  const isTeraBox =
+    lower.includes('terasharelink.com') ||
+    lower.includes('1024tera.com') ||
+    lower.includes('terabox.com') ||
+    lower.includes('mirrobox.com');
+
+  // Direct video file → <video> player.
+  const isDirectVideo = /\.(mp4|m4v|webm|mkv|mov|avi)(\?|#|$)/i.test(lower);
+
+  // Google Drive share link → direct playable link banao.
+  const driveMatch = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+
+  if (isDirectVideo) {
+    return (
+      <span className="my-1 block">
+        <video
+          src={url}
+          controls
+          playsInline
+          preload="metadata"
+          className="max-h-64 w-full rounded-lg bg-black"
+        />
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block truncate text-xs text-mint-400 underline"
+          onClick={(e) => e.stopPropagation()}
+        >
+          🎬 {url.length > 50 ? url.slice(0, 50) + '...' : url}
+        </a>
+      </span>
+    );
+  }
+
+  if (driveMatch) {
+    const directUrl = `https://drive.google.com/uc?id=${driveMatch[1]}&export=download`;
+    return (
+      <span className="my-1 block">
+        <video
+          src={directUrl}
+          controls
+          playsInline
+          preload="metadata"
+          className="max-h-64 w-full rounded-lg bg-black"
+        />
+        <span className="block text-xs text-gray-400">📀 Google Drive video — upar play dabao</span>
+      </span>
+    );
+  }
+
+  if (isTeraBox) {
+    // TeraBox share page ko app ke andar hi kholo.
+    return (
+      <span className="my-1 block">
+        {!expanded ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded(true);
+            }}
+            className="flex w-full items-center gap-3 rounded-lg bg-black/25 p-3 text-left"
+          >
+            <span className="text-3xl">🎬</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium text-gray-100">
+                Movie — yahin dekho
+              </span>
+              <span className="text-xs text-mint-400">
+                ▶ Tap karo, player khulega (TeraBox login lag sakta hai)
+              </span>
+            </span>
+          </button>
+        ) : (
+          <span className="block">
+            <iframe
+              src={url}
+              title="Video player"
+              className="h-80 w-full rounded-lg bg-black"
+              allow="autoplay; fullscreen; encrypted-media"
+              allowFullScreen
+            />
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block py-1 text-xs text-mint-400 underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Browser me kholo
+            </a>
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  // Aam link → clickable.
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-mint-400 underline break-all"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {url}
+    </a>
+  );
+}
 
 
 function Ticks({ message, otherIds }) {
@@ -216,7 +357,7 @@ export default function MessageBubble({
             )}
             {m.text && (
               <div className="whitespace-pre-wrap break-words text-[15px] leading-snug text-gray-100">
-                {m.text}
+                {renderRichText(m.text)}
               </div>
             )}
           </>
