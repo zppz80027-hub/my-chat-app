@@ -76,8 +76,9 @@ module.exports = function conversationsRouter(io) {
   router.post(
     '/',
     ah(async (req, res) => {
-      const { type, memberId, name, memberIds } = req.body || {};
-      const now = Date.now();
+      // Sirf common "chat" group hai — naye DM ya group banane band hain.
+      // Sab log common "chat" me hi baat karte hain.
+      return res.status(403).json({ error: 'Sirf common "chat" me baat hoti hai' });
 
       if (type === 'dm') {
         if (typeof memberId !== 'string' || !memberId) {
