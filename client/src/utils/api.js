@@ -3,6 +3,7 @@
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const TOKEN_KEY = 'ping.token';
+// build-v2
 
 export const apiBase = API_BASE;
 
