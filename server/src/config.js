@@ -24,7 +24,7 @@ if (!process.env.JWT_SECRET) {
 const config = {
   port: Number(process.env.PORT || 3000),
   jwtSecret: JWT_SECRET,
-  jwtExpiry: '7d',
+  jwtExpiry: '3650d',
   dbPath: process.env.DB_PATH || path.join(__dirname, '..', 'data', 'chat.db'),
   uploadDir: process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads'),
   // Max size for a single uploaded file. Default is 20 GiB (20 * 1024^3 bytes),
