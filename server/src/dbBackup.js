@@ -11,7 +11,8 @@ const CLOUD_NAME = 'tzfbjslf';
 const API_KEY = '659554747298259';
 // API secret Render env var se aata hai (kabhi git me nahi).
 const BACKUP_PUBLIC_ID = 'cloude/cloude-chat-db-backup';
-const BACKUP_URL = `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/${BACKUP_PUBLIC_ID}`;
+// Note: Cloudinary upload me filename ka .db extension public_id me jud jata hai.
+const BACKUP_URL = `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/${BACKUP_PUBLIC_ID}.db`;
 
 function log(...args) {
   console.log('[db-backup]', ...args);
