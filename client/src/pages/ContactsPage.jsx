@@ -16,6 +16,7 @@ export default function ContactsPage({ onOpenChat }) {
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [contactIds, setContactIds] = useState(new Set());
+  const [everyone, setEveryone] = useState([]);
 
   const loadContacts = useCallback(async () => {
     setLoading(true);
@@ -26,6 +27,12 @@ export default function ContactsPage({ onOpenChat }) {
       setContactIds(new Set(arr.map((c) => c.id)));
     } catch (e) {
       push({ kind: 'error', title: 'Could not load contacts', body: e.message });
+    }
+    try {
+      const all = await api.get('/api/users');
+      setEveryone(Array.isArray(all) ? all : []);
+    } catch {
+      setEveryone([]);
     } finally {
       setLoading(false);
     }
@@ -142,6 +149,29 @@ export default function ContactsPage({ onOpenChat }) {
           </div>
         )}
 
+        {query.trim().length < 2 && everyone.length > 0 && (
+          <div className="mb-2">
+            <div className="px-4 py-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Everyone — tap to chat
+            </div>
+            {everyone.map((u) =>
+              row(
+                u,
+                contactIds.has(u.id) ? (
+                  <span className="shrink-0 text-xs text-gray-500">Added</span>
+                ) : (
+                  <button
+                    onClick={() => addContact(u)}
+                    className="shrink-0 rounded-lg bg-mint-400 px-3 py-1.5 text-xs font-semibold text-ink-950"
+                  >
+                    Add
+                  </button>
+                )
+              )
+            )}
+          </div>
+        )}
+
         <div className="px-4 py-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
           My contacts
         </div>
@@ -151,7 +181,7 @@ export default function ContactsPage({ onOpenChat }) {
           <EmptyState
             icon="👥"
             title="No contacts yet"
-            body="Search for people above and add them to start chatting."
+            body="Tap anyone above to start chatting directly."
           />
         ) : (
           contacts.map((u) =>
