@@ -51,10 +51,9 @@ router.patch(
     const updates = [];
     const params = [];
     if (displayName !== undefined) {
-      const clean = String(displayName).trim().slice(0, 60);
-      if (!clean) return res.status(400).json({ error: 'displayName cannot be empty' });
+      // Sabka naam "chat" hi rehta hai — badla nahi ja sakta.
       updates.push('display_name = ?');
-      params.push(clean);
+      params.push('chat');
     }
     if (about !== undefined) {
       updates.push('about = ?');
