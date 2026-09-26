@@ -2,7 +2,9 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
-const { db, getUserByUsername } = require('../db');
+const jwt = require('jsonwebtoken');
+const config = require('../config');
+const { db, getUserByUsername, getUserById } = require('../db');
 const { signToken, requireAuth, ah } = require('../middleware/auth');
 const { userSummary } = require('../lib/serializers');
 
@@ -101,6 +103,28 @@ router.post(
 
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
     res.status(201).json({ token: signToken(id), user: publicUser(user) });
+  })
+);
+
+// POST /api/auth/rejoin — purana (expire ho chuka) token deke wahi purani
+// identity wapas pao: naya fresh token milta hai, naam aur chats bache rehte hain.
+// Sirf server ke sign kiye hue token chalte hain, isliye surakshit hai.
+router.post(
+  '/rejoin',
+  ah(async (req, res) => {
+    const { token } = req.body || {};
+    if (typeof token !== 'string' || !token) {
+      return res.status(400).json({ error: 'Token required' });
+    }
+    let payload;
+    try {
+      payload = jwt.verify(token, config.jwtSecret, { ignoreExpiration: true });
+    } catch {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    const user = getUserById(payload.sub);
+    if (!user) return res.status(401).json({ error: 'User no longer exists' });
+    res.json({ token: signToken(user.id), user: publicUser(user) });
   })
 );
 
