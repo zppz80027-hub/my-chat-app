@@ -1,22 +1,6 @@
-// AuthPage ab naam nahi puchta — app khul te hi khud join ho jata hai.
-// Pehle se save naam (phone me) wapas milta hai, nahi to Mehmaan-XXXX banta hai.
+// AuthPage naam nahi puchta — app khul te hi "chat" naam se khud join ho jata hai.
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-
-const NAME_KEY = 'cloude.displayName';
-
-function loadSavedName() {
-  try {
-    return localStorage.getItem(NAME_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function defaultGuestName() {
-  const n = Math.floor(1000 + Math.random() * 9000);
-  return `Mehmaan-${n}`;
-}
 
 export default function AuthPage() {
   const { join } = useAuth();
@@ -26,8 +10,7 @@ export default function AuthPage() {
   const doJoin = async () => {
     setError('');
     try {
-      // Naam phone me save hai to wahi wapas — naya random naam nahi.
-      await join(loadSavedName() || defaultGuestName());
+      await join('chat');
     } catch (err) {
       setError(err.message || 'Shuru nahi ho paya. Dobara try karo.');
     }
