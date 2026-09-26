@@ -157,4 +157,28 @@ function getConversation(id) {
   return db.prepare('SELECT * FROM conversations WHERE id = ?').get(id);
 }
 
-module.exports = { db, getUserById, getUserByUsername, isMember, getConversation, COMMON_CHAT_ID };
+// Har user common "chat" group ka member rahe — chahe wo kabhi bhi join hua ho
+// (purana session, beech me bana user, fresh DB). INSERT OR IGNORE hai,
+// isliye ise har authenticated request pe chalana sasta aur surakshit hai.
+let _chatStmts = null;
+function ensureCommonChatMembership(userId) {
+  try {
+    if (!_chatStmts) {
+      _chatStmts = {
+        mkGroup: db.prepare(
+          "INSERT OR IGNORE INTO conversations (id, type, name, created_by, created_at) VALUES (?, 'group', 'chat', NULL, ?)"
+        ),
+        mkMember: db.prepare(
+          'INSERT OR IGNORE INTO conversation_members (conversation_id, user_id, joined_at) VALUES (?, ?, ?)'
+        ),
+      };
+    }
+    const now = Date.now();
+    _chatStmts.mkGroup.run(COMMON_CHAT_ID, now);
+    _chatStmts.mkMember.run(COMMON_CHAT_ID, userId, now);
+  } catch (_) {
+    /* best effort — caller ko kabhi rokna nahi */
+  }
+}
+
+module.exports = { db, getUserById, getUserByUsername, isMember, getConversation, COMMON_CHAT_ID, ensureCommonChatMembership };
