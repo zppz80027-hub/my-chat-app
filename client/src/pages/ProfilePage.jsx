@@ -5,9 +5,8 @@ import { useToasts } from '../context/ToastContext';
 import Avatar from '../components/Avatar';
 
 export default function ProfilePage() {
-  const { user, updateUser, logout } = useAuth();
+  const { user, updateUser } = useAuth();
   const { push } = useToasts();
-  const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [about, setAbout] = useState(user?.about || '');
   const [preview, setPreview] = useState(null); // object URL
   const [file, setFile] = useState(null);
@@ -16,7 +15,6 @@ export default function ProfilePage() {
   const inputRef = useRef(null);
 
   useEffect(() => {
-    setDisplayName(user?.displayName || '');
     setAbout(user?.about || '');
   }, [user]);
 
@@ -61,15 +59,10 @@ export default function ProfilePage() {
   };
 
   const save = async () => {
-    const name = displayName.trim();
-    if (!name) {
-      push({ kind: 'error', title: 'Display name cannot be empty.' });
-      return;
-    }
     setSaving(true);
     try {
-      const res = await api.patch('/api/profile', { displayName: name, about: about.trim() });
-      const updated = res?.user || { ...user, displayName: name, about: about.trim() };
+      const res = await api.patch('/api/profile', { about: about.trim() });
+      const updated = res?.user || { ...user, about: about.trim() };
       updateUser(updated);
       push({ kind: 'success', title: 'Profile saved' });
     } catch (e) {
@@ -122,15 +115,6 @@ export default function ProfilePage() {
 
       <div className="mx-auto flex max-w-md flex-col gap-4 px-6 py-6">
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-gray-400">Display name</span>
-          <input
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            maxLength={40}
-            className="w-full rounded-xl border border-ink-700 bg-ink-800 px-4 py-3 text-[15px]"
-          />
-        </label>
-        <label className="block">
           <span className="mb-1 block text-xs font-medium text-gray-400">About</span>
           <textarea
             value={about}
@@ -147,14 +131,6 @@ export default function ProfilePage() {
           className="rounded-xl bg-mint-400 py-3 text-[15px] font-semibold text-ink-950 disabled:opacity-50"
         >
           {saving ? 'Saving…' : 'Save changes'}
-        </button>
-        <button
-          onClick={() => {
-            if (window.confirm('Naam badalna hai? Tum nayi pehchaan se join karoge.')) logout();
-          }}
-          className="rounded-xl bg-ink-800 py-3 text-[15px] font-semibold text-red-400 hover:bg-ink-700"
-        >
-          Switch name
         </button>
       </div>
     </div>
