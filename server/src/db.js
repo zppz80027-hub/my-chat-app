@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   type       TEXT NOT NULL CHECK (type IN ('dm', 'group')),
   name       TEXT,
   created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  wallpaper TEXT
 );
 
 CREATE TABLE IF NOT EXISTS conversation_members (
@@ -116,6 +117,12 @@ db.exec(SCHEMA);
 // --- Common "chat" group: sab log ek hi chat me --------------------------------
 // Ek hi group hota hai jisme sab members hain. Chat pe tap karte hi sab usi me
 // baat karte hain — alag-alag DM banane ki zaroorat nahi.
+// Wallpaper column — purane DB ke liye migration.
+{
+  const cols = db.prepare('PRAGMA table_info(conversations)').all().map((r) => r.name);
+  if (!cols.includes('wallpaper')) db.exec('ALTER TABLE conversations ADD COLUMN wallpaper TEXT');
+}
+
 const COMMON_CHAT_ID = 'common-chat';
 db.prepare(
   "INSERT OR IGNORE INTO conversations (id, type, name, created_by, created_at) VALUES (?, 'group', 'chat', NULL, ?)"
