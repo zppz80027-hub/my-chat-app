@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { useChat } from '../context/ChatContext';
 import { useToasts } from '../context/ToastContext';
 import Avatar from './Avatar';
+import { WALLPAPER_PRESETS, currentWallpaperId } from '../lib/wallpaper';
 
 export default function ConversationInfo({ convId, onClose }) {
   const { user } = useAuth();
@@ -19,6 +20,8 @@ export default function ConversationInfo({ convId, onClose }) {
   const [search, setSearch] = useState('');
   const [results, setResults] = useState([]);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [wpSaving, setWpSaving] = useState(false);
+  const wpFileRef = useRef(null);
 
   useEffect(() => {
     setEditingName(false);
@@ -28,8 +31,43 @@ export default function ConversationInfo({ convId, onClose }) {
     setConfirmLeave(false);
   }, [convId]);
 
+  // ---- Shared wallpaper (jo lagao, sab ko dikhega) ----
+  const applyWallpaper = async (preset) => {
+    setWpSaving(true);
+    try {
+      const res = await api.patch(`/api/conversations/${convId}/wallpaper`, { preset });
+      updateConversation(convId, { wallpaper: res?.wallpaper || null });
+    } catch (e) {
+      push({ kind: 'error', title: 'Wallpaper nahi badla', body: e.message });
+    } finally {
+      setWpSaving(false);
+    }
+  };
+  const uploadWallpaper = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!f.type.startsWith('image/')) {
+      push({ kind: 'error', title: 'Please choose an image file.' });
+      return;
+    }
+    setWpSaving(true);
+    try {
+      const form = new FormData();
+      form.append('wallpaper', f);
+      const res = await api.post(`/api/conversations/${convId}/wallpaper`, form);
+      updateConversation(convId, { wallpaper: res?.wallpaper || null });
+      push({ kind: 'success', title: 'Wallpaper badal gaya — sab ko dikhega' });
+    } catch (e) {
+      push({ kind: 'error', title: 'Wallpaper upload failed', body: e.message });
+    } finally {
+      setWpSaving(false);
+    }
+  };
+
   if (!conv) return null;
   const isGroup = conv.type === 'group';
+  const activeWp = currentWallpaperId(conv.wallpaper);
   const members = conv.members || [];
   const peer = !isGroup ? members.find((m) => m.id !== user.id) : null;
   const title = isGroup ? conv.name : peer?.displayName || peer?.username || 'Chat';
@@ -155,6 +193,36 @@ export default function ConversationInfo({ convId, onClose }) {
             {isGroup && (
               <div className="text-sm text-gray-400">{members.length} members</div>
             )}
+          </div>
+
+          {/* Wallpaper — jo lagao ge, sab ko dikhega */}
+          <div className="border-t border-ink-700 px-4 py-3">
+            <div className="mb-1 text-sm font-semibold text-gray-300">🖼️ Wallpaper</div>
+            <div className="mb-2 text-xs text-gray-500">Jo wallpaper lagao ge, wo sab ko dikhega</div>
+            <div className="grid grid-cols-4 gap-2">
+              {WALLPAPER_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => applyWallpaper(p.id)}
+                  disabled={wpSaving}
+                  className="flex flex-col items-center gap-1"
+                >
+                  <span
+                    style={p.style}
+                    className={`block h-14 w-full rounded-lg border-2 ${activeWp === p.id ? 'border-mint-400' : 'border-transparent'}`}
+                  />
+                  <span className="text-[10px] text-gray-400">{p.name}</span>
+                </button>
+              ))}
+              <button onClick={() => wpFileRef.current?.click()} disabled={wpSaving} className="flex flex-col items-center gap-1">
+                <span className={`flex h-14 w-full items-center justify-center rounded-lg border-2 bg-ink-800 text-2xl ${activeWp === 'upload' ? 'border-mint-400' : 'border-transparent'}`}>
+                  📤
+                </span>
+                <span className="text-[10px] text-gray-400">Upload</span>
+              </button>
+            </div>
+            <input ref={wpFileRef} type="file" accept="image/*" className="hidden" onChange={uploadWallpaper} />
+            {wpSaving && <div className="mt-2 text-xs text-gray-500">Badal raha hai…</div>}
           </div>
 
           <div className="px-4 py-3">
