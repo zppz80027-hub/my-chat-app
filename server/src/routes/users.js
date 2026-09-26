@@ -29,6 +29,18 @@ router.get(
   })
 );
 
+// GET /api/users -> sab log (requester ko chhod ke). Bina search ke tap-to-chat ke liye.
+router.get(
+  '/',
+  requireAuth,
+  ah(async (req, res) => {
+    const rows = db
+      .prepare('SELECT * FROM users WHERE id != ? ORDER BY created_at DESC LIMIT 100')
+      .all(req.user.id);
+    res.json(rows.map(userSummary));
+  })
+);
+
 // GET /api/users/:id/avatar -> the user's avatar image file (public, so it can
 // be embedded directly in <img> tags without an auth header).
 router.get('/:id/avatar', (req, res) => {
