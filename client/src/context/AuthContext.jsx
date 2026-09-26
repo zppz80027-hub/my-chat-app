@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { api, getToken, setToken } from '../utils/api';
+import { api, getToken, setToken, setAuthFailureHandler } from '../utils/api';
 
 const AuthContext = createContext(null);
 
@@ -53,6 +53,32 @@ export function AuthProvider({ children }) {
       cancelled = true;
     };
   }, []);
+
+  // Kahin bhi 401 aaye to pehle purani identity wapas lao (rejoin),
+  // na mile to naya guest bana ke kaam chalao — user ko pata bhi nahi chalega.
+  useEffect(() => {
+    setAuthFailureHandler(async () => {
+      const oldToken = getToken();
+      if (oldToken) {
+        try {
+          const { token: fresh, user: u } = await api.post('/api/auth/rejoin', { token: oldToken });
+          setToken(fresh);
+          setUser(u);
+          if (u && u.displayName) saveName(u.displayName);
+          return true;
+        } catch {
+          /* neeche naya guest */
+        }
+      }
+      try {
+        await join('chat');
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    return () => setAuthFailureHandler(null);
+  }, [join]);
 
   const join = useCallback(async (name) => {
     const { token, user: u } = await api.post('/api/auth/guest', { name });
