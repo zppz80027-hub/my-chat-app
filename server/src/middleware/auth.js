@@ -1,7 +1,7 @@
 // JWT helpers + Express auth middleware.
 const jwt = require('jsonwebtoken');
 const config = require('../config');
-const { getUserById } = require('../db');
+const { getUserById, ensureCommonChatMembership } = require('../db');
 
 function signToken(userId) {
   return jwt.sign({ sub: userId }, config.jwtSecret, { expiresIn: config.jwtExpiry });
@@ -38,6 +38,7 @@ function requireAuth(req, res, next) {
   if (!user) return res.status(401).json({ error: 'User no longer exists' });
   const { password_hash, ...safe } = user;
   req.user = safe;
+  ensureCommonChatMembership(user.id); // sab "chat" group me rahen
   next();
 }
 
