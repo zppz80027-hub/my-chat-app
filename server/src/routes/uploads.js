@@ -104,6 +104,32 @@ router.post(
   })
 );
 
+// POST /api/uploads/resume {uploadId} — adhoori upload wahi se aage badhao.
+// Sirf pending + isi user ki upload par chunk state wapas deta hai.
+router.post(
+  '/resume',
+  ah(async (req, res) => {
+    const { uploadId } = req.body || {};
+    if (typeof uploadId !== 'string' || !uploadId) {
+      return res.status(400).json({ error: 'uploadId is required' });
+    }
+    let up;
+    try {
+      up = pendingUploadOr404(uploadId, req.user.id);
+    } catch (e) {
+      return res.status(e.status || 404).json({ error: e.message || 'Upload not found' });
+    }
+    res.json({
+      uploadId,
+      chunkSize: config.chunkSize,
+      existingChunks: existingChunks(uploadId),
+      filename: up.filename,
+      size: up.size,
+      conversationId: up.conversation_id,
+    });
+  })
+);
+
 // POST /api/uploads/chunk?uploadId=&index=  with raw binary body
 router.post(
   '/chunk',
