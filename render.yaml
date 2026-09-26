@@ -1,12 +1,4 @@
 # Render Blueprint for the Chat App (one-click deploy from the repo root).
-# In the Render dashboard: New > Blueprint > connect this repo. Render reads
-# this file and creates the web service automatically.
-#
-# Persistence: uploaded files (movies, images) go to Cloudflare R2 when the
-# R2_* env vars are set, and the SQLite DB is continuously replicated to R2
-# via Litestream (server/scripts/boot.sh). Redeploys no longer wipe chat,
-# users, or files. Without R2 env vars the app falls back to the old
-# ephemeral behavior (everything on the free tier's throwaway disk).
 services:
   - type: web
     name: chatapp
@@ -24,15 +16,5 @@ services:
         generateValue: true
       - key: MAX_FILE_SIZE
         value: 20GB
-      # Cloudflare R2 (free tier: 10GB, no egress fees). sync:false = value
-      # Render dashboard me set karo, repo me commit mat karo.
-      - key: R2_ACCOUNT_ID
-        sync: false
-      - key: R2_ACCESS_KEY_ID
-        sync: false
-      - key: R2_SECRET_ACCESS_KEY
-        sync: false
       - key: R2_BUCKET
         value: cloude-files
-      - key: R2_PUBLIC_URL
-        sync: false
