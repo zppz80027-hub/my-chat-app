@@ -475,8 +475,15 @@ export async function uploadFileToCloudinary(file, conversationId, onProgress, e
   };
   document.addEventListener('visibilitychange', reLock);
 
-  try {
-    const { secure_url, public_id } = await new Promise((resolve, reject) => {
+  // Badi file (>50MB) ko tukdon me bhejo — ek saath 1GB nahi jata.
+  const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB per chunk
+  const useChunks = file.size > 50 * 1024 * 1024;
+  const totalChunks = useChunks ? Math.ceil(file.size / CHUNK_SIZE) : 1;
+  const uploadId = `cloude-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  /** Ek chunk bhejo (retry ke saath). */
+  const sendChunk = (chunkBlob, start, end, isLast, onChunkProgress) =>
+    new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       if (externalSignal) {
         if (externalSignal.aborted) {
@@ -486,37 +493,79 @@ export async function uploadFileToCloudinary(file, conversationId, onProgress, e
         externalSignal.addEventListener('abort', () => xhr.abort(), { once: true });
       }
       xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+        if (e.lengthComputable && onChunkProgress) onChunkProgress(e.loaded / e.total);
       });
       xhr.addEventListener('load', () => {
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
             const data = JSON.parse(xhr.responseText);
-            if (data.secure_url) resolve(data);
-            else reject(new Error(data.error?.message || 'Cloudinary upload failed'));
+            resolve(data);
           } catch {
             reject(new Error('Cloudinary bad response'));
           }
         } else {
-          reject(new Error(`Cloudinary upload failed (${xhr.status})`));
+          let msg = `Cloudinary upload failed (${xhr.status})`;
+          try {
+            const d = JSON.parse(xhr.responseText);
+            if (d.error?.message) msg = d.error.message;
+          } catch {}
+          reject(new Error(msg));
         }
       });
       xhr.addEventListener('error', () => reject(new Error('Cloudinary network error')));
       xhr.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
       const fd = new FormData();
-      fd.append('file', file);
+      fd.append('file', chunkBlob, file.name);
       fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
       xhr.open('POST', uploadUrl);
+      if (useChunks) {
+        xhr.setRequestHeader('X-Unique-Upload-Id', uploadId);
+        xhr.setRequestHeader('Content-Range', `bytes ${start}-${end}/${file.size}`);
+      }
       xhr.send(fd);
     });
+
+  try {
+    let result = null;
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size) - 1;
+      const chunk = useChunks ? file.slice(start, end + 1) : file;
+      const isLast = i === totalChunks - 1;
+
+      // Har chunk par 3 retry.
+      let lastErr = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          result = await sendChunk(chunk, start, end, isLast, (chunkPct) => {
+            if (onProgress) {
+              const overall = (i + chunkPct) / totalChunks;
+              onProgress(overall);
+            }
+          });
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (err.name === 'AbortError') throw err;
+          if (attempt < 3) await new Promise((r) => setTimeout(r, 1000 * attempt));
+        }
+      }
+      if (lastErr) throw lastErr;
+      if (onProgress) onProgress((i + 1) / totalChunks);
+    }
+
+    if (!result?.secure_url) {
+      throw new Error(result?.error?.message || 'Cloudinary upload failed');
+    }
 
     // Server par register karo taaki chat message ban sake.
     const reg = await api.post('/api/uploads/cloudinary', {
       filename: file.name,
       mimeType: file.type || 'application/octet-stream',
       size: file.size,
-      cloudinaryUrl: secure_url,
-      publicId: public_id,
+      cloudinaryUrl: result.secure_url,
+      publicId: result.public_id,
       conversationId,
     });
     if (onProgress) onProgress(1);
