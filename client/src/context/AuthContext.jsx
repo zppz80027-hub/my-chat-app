@@ -54,6 +54,14 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
+  const join = useCallback(async (name) => {
+    const { token, user: u } = await api.post('/api/auth/guest', { name });
+    setToken(token);
+    setUser(u);
+    if (u && u.displayName) saveName(u.displayName);
+    return u;
+  }, []);
+
   // Kahin bhi 401 aaye to pehle purani identity wapas lao (rejoin),
   // na mile to naya guest bana ke kaam chalao — user ko pata bhi nahi chalega.
   useEffect(() => {
@@ -79,14 +87,6 @@ export function AuthProvider({ children }) {
     });
     return () => setAuthFailureHandler(null);
   }, [join]);
-
-  const join = useCallback(async (name) => {
-    const { token, user: u } = await api.post('/api/auth/guest', { name });
-    setToken(token);
-    setUser(u);
-    if (u && u.displayName) saveName(u.displayName);
-    return u;
-  }, []);
 
   const logout = useCallback(() => {
     setToken(null);
