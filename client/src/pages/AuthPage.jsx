@@ -1,70 +1,72 @@
-import React, { useState } from 'react';
+// AuthPage ab naam nahi puchta — app khul te hi khud join ho jata hai.
+// Pehle se save naam (phone me) wapas milta hai, nahi to Mehmaan-XXXX banta hai.
+import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+
+const NAME_KEY = 'cloude.displayName';
+
+function loadSavedName() {
+  try {
+    return localStorage.getItem(NAME_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function defaultGuestName() {
+  const n = Math.floor(1000 + Math.random() * 9000);
+  return `Mehmaan-${n}`;
+}
 
 export default function AuthPage() {
   const { join } = useAuth();
-  const [name, setName] = useState('');
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const tried = useRef(false);
 
-  const submit = async (e) => {
-    e.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setError('Apna naam likho.');
-      return;
-    }
+  const doJoin = async () => {
     setError('');
-    setBusy(true);
     try {
-      await join(trimmed);
+      // Naam phone me save hai to wahi wapas — naya random naam nahi.
+      await join(loadSavedName() || defaultGuestName());
     } catch (err) {
-      setError(err.message || 'Join nahi ho paya. Dobara try karo.');
-    } finally {
-      setBusy(false);
+      setError(err.message || 'Shuru nahi ho paya. Dobara try karo.');
     }
   };
 
+  useEffect(() => {
+    if (!tried.current) {
+      tried.current = true;
+      doJoin();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="flex min-h-full items-center justify-center bg-ink-950 px-6 py-10">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-mint-400 text-4xl">
-            💬
-          </div>
+      <div className="flex w-full max-w-sm flex-col items-center gap-4 text-center">
+        <div className="flex h-16 w-16 animate-pulse items-center justify-center rounded-2xl bg-mint-400 text-4xl">
+          💬
+        </div>
+        <div>
           <h1 className="text-3xl font-bold text-gray-100">Cloude</h1>
           <p className="mt-1 text-sm text-gray-400">Fast, private messaging</p>
         </div>
-
-        <form onSubmit={submit} className="flex flex-col gap-4">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-gray-400">Tumhara naam</span>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Aarav Sharma"
-              autoComplete="name"
-              maxLength={60}
-              autoFocus
-              className="w-full rounded-xl border border-ink-700 bg-ink-800 px-4 py-3 text-[15px] text-gray-100 placeholder-gray-600"
-            />
-          </label>
-          {error && (
+        {error ? (
+          <>
             <div className="rounded-xl border border-red-900 bg-red-950 px-4 py-3 text-sm text-red-300">
               {error}
             </div>
-          )}
-          <button
-            type="submit"
-            disabled={busy}
-            className="mt-2 rounded-xl bg-mint-400 py-3.5 text-base font-semibold text-ink-950 hover:bg-mint-600 disabled:opacity-50"
-          >
-            {busy ? 'Please wait…' : 'Start chatting'}
-          </button>
-          <p className="text-center text-xs text-gray-500">
-            Koi account ya password nahi chahiye — bas naam likho aur shuru karo.
-          </p>
-        </form>
+            <button
+              type="button"
+              onClick={doJoin}
+              className="rounded-xl bg-mint-400 px-6 py-3 text-base font-semibold text-ink-950 hover:bg-mint-600"
+            >
+              Dobara try karo
+            </button>
+          </>
+        ) : (
+          <div className="text-sm text-gray-500">Shuru ho raha hai…</div>
+        )}
       </div>
     </div>
   );
