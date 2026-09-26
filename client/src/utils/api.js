@@ -630,19 +630,8 @@ export async function uploadFileToCloudinary(file, conversationId, onProgress, e
  * (AbortError) par fallback nahi — user ne khud roka hai.
  */
 export async function uploadFileSmart(file, conversationId, onProgress, externalSignal) {
-  // Cloudinary free plan me video max 100MB — isse badi file par Cloudinary
-  // try karna bekaar hai (ataki rehti hai). Badi file seedha purane relay
-  // raste se jayegi (server par 20GB tak), jaise pehle hota tha.
-  const skipCloudinary =
-    (file.type || '').startsWith('video/') && file.size > 100 * 1024 * 1024;
-  if (!skipCloudinary) {
-    try {
-      return await uploadFileToCloudinary(file, conversationId, onProgress, externalSignal);
-    } catch (err) {
-      if (err.name === 'AbortError' || (externalSignal && externalSignal.aborted)) throw err;
-      // Cloudinary fail → purana R2/relay rasta try karo.
-    }
-  }
+  // User ki pasand (pehle jaisa): Cloudinary bilkul nahi — har file seedha
+  // purane relay raste se jayegi (server par 20GB tak, resume ke saath).
   try {
     return await uploadFileDirectToR2(file, conversationId, onProgress, externalSignal);
   } catch (err) {
