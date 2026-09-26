@@ -41,9 +41,11 @@ router.get(
     res.setHeader('Content-Type', up.mime_type || 'application/octet-stream');
     res.setHeader('Accept-Ranges', 'bytes');
     // RFC 5987 encoding for non-ASCII filenames.
+    // Video/audio/image seedha browser me play ho — download force na ho.
+    const isMedia = /^(video|audio|image)\//.test(up.mime_type || '');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${up.filename.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(up.filename)}`
+      `${isMedia ? 'inline' : 'attachment'}; filename="${up.filename.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(up.filename)}`
     );
 
     const range = req.headers.range;
