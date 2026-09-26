@@ -58,6 +58,17 @@ router.get(
 
     const filePath = filePathFor(up.id, up.filename);
     if (!filePath || !fs.existsSync(filePath)) {
+      // Badi movie archive me ho to tukde jodna background me shuru karo,
+      // tab tak user ko "taiyaar ho rahi hai" batao (request block nahi hota).
+      try {
+        const { triggerMovieRestore } = require('../movieArchive');
+        const st = triggerMovieRestore(up.id);
+        if (st === 'restoring' || st === 'archiving') {
+          return res.status(503).json({ error: 'movie_preparing', retryAfter: 60 });
+        }
+      } catch (e) {
+        console.log('[files] archive check fail:', e.message);
+      }
       return res.status(404).json({ error: 'File data missing on server' });
     }
 

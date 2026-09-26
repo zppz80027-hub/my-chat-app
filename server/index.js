@@ -51,7 +51,9 @@ async function boot() {
   app.use(express.urlencoded({ extended: true }));
 
   // ---- health ------------------------------------------------------------------
-  app.get('/api/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+  app.get('/api/health', (_req, res) =>
+    res.json({ ok: true, time: new Date().toISOString(), version: '2026-09-27-movie-archive-1' })
+  );
 
   // ---- API routes (all before the SPA fallback and the /api 404 handler) --------
   app.use('/api/auth', require('./src/routes/auth'));
@@ -89,6 +91,13 @@ async function boot() {
 
   // 3. Ab se har 5 minute me DB ka backup Cloudinary par.
   startAutoBackup();
+
+  // 4. Badi movies (archive) ki gum local files background me wapas jodo.
+  try {
+    require('./src/movieArchive').restoreAllMoviesInBackground();
+  } catch (e) {
+    console.log('[movie-archive] boot restore start fail:', e.message);
+  }
 
   server.listen(config.port, () => {
     const addr = server.address();

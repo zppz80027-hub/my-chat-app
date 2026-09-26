@@ -2,6 +2,40 @@ import React, { useMemo, useRef, useState } from 'react';
 import { fileUrl } from '../utils/api';
 import { fmtSize, fmtTime } from '../utils/format';
 
+// Video player jo 503 (movie abhi taiyaar ho rahi hai) par retry dikhata hai.
+function ResilientVideo({ src, filename, size }) {
+  const [failed, setFailed] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+  if (failed) {
+    return (
+      <div className="rounded-lg bg-black/40 p-3 text-center text-xs text-gray-300">
+        <div className="mb-1 text-lg">⏳</div>
+        <div>Movie server par taiyaar ho rahi hai…</div>
+        <button
+          className="mt-2 rounded-full bg-mint-500 px-3 py-1 font-medium text-black"
+          onClick={() => {
+            setFailed(false);
+            setRetryKey((k) => k + 1);
+          }}
+        >
+          ↻ Dobara try karo
+        </button>
+      </div>
+    );
+  }
+  return (
+    <video
+      key={retryKey}
+      src={src}
+      controls
+      playsInline
+      preload="metadata"
+      className="max-h-64 w-full bg-black"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 // Text me se URLs nikalo aur unhe playable/embeddable banao.
 function renderRichText(text) {
   if (!text) return null;
@@ -323,13 +357,7 @@ export default function MessageBubble({
             )}
             {isVideoMsg && (
               <div className="mb-1 overflow-hidden rounded-lg" onClick={(e) => e.stopPropagation()}>
-                <video
-                  src={fileUrl(m.file.url)}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  className="max-h-64 w-full bg-black"
-                />
+                <ResilientVideo src={fileUrl(m.file.url)} filename={m.file.filename} size={m.file.size} />
                 <div className="truncate px-1 py-1 text-xs text-gray-400">
                   🎬 {m.file.filename} · {fmtSize(m.file.size)}
                 </div>

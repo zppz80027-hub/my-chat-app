@@ -133,6 +133,18 @@ db.exec(SCHEMA);
   if (!cols.includes('r2_upload_id')) db.exec('ALTER TABLE uploads ADD COLUMN r2_upload_id TEXT');
   if (!cols.includes('cloudinary_url')) db.exec('ALTER TABLE uploads ADD COLUMN cloudinary_url TEXT');
 }
+// Movie archive table — badi movies ke tukdon ka hisaab (Cloudinary par permanent).
+// status: 'archiving' | 'complete' | 'failed' | 'restoring'
+db.exec(`CREATE TABLE IF NOT EXISTS movie_archives (
+  file_id    TEXT PRIMARY KEY,
+  filename   TEXT NOT NULL,
+  mime_type  TEXT NOT NULL DEFAULT 'application/octet-stream',
+  total_size INTEGER NOT NULL,
+  part_size  INTEGER NOT NULL,
+  parts      INTEGER NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'archiving',
+  created_at INTEGER NOT NULL
+)`);
 
 const COMMON_CHAT_ID = 'common-chat';
 db.prepare(

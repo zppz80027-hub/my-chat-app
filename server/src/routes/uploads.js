@@ -235,6 +235,16 @@ router.post(
       mimeType: up.mime_type,
       size: up.size,
     });
+
+    // Badi movie (>80MB, local disk par): tukdon me tod ke Cloudinary par
+    // permanent archive karo — background me, jawab ka wait nahi.
+    if (storage === 'local' && up.size >= 80 * 1024 * 1024) {
+      try {
+        require('../movieArchive').archiveMovieInBackground(uploadId);
+      } catch (e) {
+        console.log('[uploads] archive trigger fail:', e.message);
+      }
+    }
   })
 );
 
