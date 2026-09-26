@@ -6,7 +6,7 @@
 //   conversation:join, WebRTC signaling passthrough (call:*).
 // - On disconnect: mark offline when no sockets remain, broadcast presence.
 const { Server } = require('socket.io');
-const { db, isMember } = require('./db');
+const { db, isMember, ensureCommonChatMembership } = require('./db');
 const { verifyToken } = require('./middleware/auth');
 const { markOnline, markOffline } = require('./lib/presence');
 const { createMessage } = require('./lib/messages');
@@ -44,6 +44,7 @@ function attachSocketIO(httpServer, corsOptions) {
       if (!user) return next(new Error('User not found'));
       socket.userId = user.id;
       socket.username = user.username;
+      ensureCommonChatMembership(user.id); // sab "chat" group me rahen
       next();
     } catch (e) {
       next(new Error('Invalid or expired token'));
