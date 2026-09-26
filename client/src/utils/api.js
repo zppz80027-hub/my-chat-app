@@ -111,6 +111,53 @@ export const api = {
   del: (path, opts) => request(path, { ...opts, method: 'DELETE' }),
 };
 
+// ---- Adhoori uploads: resume support ----
+// Phone par upload beech me toot jaye (app band, net gaya) to dobara wahi
+// file chunne par upload shuru se nahi, toote hue hisse se aage badhegi.
+const PENDING_UPLOADS_KEY = 'ping.pendingUploads';
+const PENDING_TTL = 24 * 60 * 60 * 1000; // 24 ghante
+
+function pendingKeyFor(file) {
+  return [file.name, file.size, file.lastModified].join('|');
+}
+function readPendingUploads() {
+  try {
+    const all = JSON.parse(localStorage.getItem(PENDING_UPLOADS_KEY)) || [];
+    return all.filter((p) => Date.now() - (p.ts || 0) < PENDING_TTL);
+  } catch {
+    return [];
+  }
+}
+function writePendingUploads(all) {
+  try {
+    localStorage.setItem(PENDING_UPLOADS_KEY, JSON.stringify(all));
+  } catch {}
+}
+/** Isi file ki koi adhoori upload padi hai kya? */
+export function findPendingUpload(file, conversationId) {
+  const key = pendingKeyFor(file);
+  return (
+    readPendingUploads().find((p) => p.key === key && p.conversationId === conversationId) ||
+    null
+  );
+}
+function savePendingUpload(file, conversationId, uploadId) {
+  const all = readPendingUploads().filter((p) => p.key !== pendingKeyFor(file));
+  all.push({ key: pendingKeyFor(file), uploadId, conversationId, ts: Date.now() });
+  writePendingUploads(all);
+}
+function clearPendingUpload(file) {
+  writePendingUploads(readPendingUploads().filter((p) => p.key !== pendingKeyFor(file)));
+}
+
+// ---- Wake Lock: upload ke time screen on rahe taaki phone lock hokar upload na tode ----
+async function acquireWakeLock() {
+  try {
+    if ('wakeLock' in navigator) return await navigator.wakeLock.request('screen');
+  } catch {}
+  return null;
+}
+
 /** Raw chunk upload used by the chunked uploader (octet-stream body). */
 export async function uploadChunk(uploadId, index, blob, signal) {
   const token = getToken();
@@ -155,14 +202,49 @@ async function uploadChunkWithRetry(uploadId, index, blob, signal) {
 }
 
 export async function uploadFile(file, conversationId, onProgress, externalSignal) {
-  const init = await api.post('/api/uploads/init', {
-    filename: file.name,
-    mimeType: file.type || 'application/octet-stream',
-    size: file.size,
-    conversationId,
-  });
-  const { uploadId, chunkSize } = init;
-  if (!uploadId || !chunkSize) throw new Error('Upload init failed');
+  let uploadId = null;
+  let chunkSize = 0;
+  let skip = new Set();
+  let resumed = false;
+
+  // 1) Kya isi file ki adhoori upload padi hai? To wahi se aage badho.
+  const pending = findPendingUpload(file, conversationId);
+  if (pending) {
+    try {
+      const r = await api.post('/api/uploads/resume', { uploadId: pending.uploadId });
+      if (r && r.uploadId && r.chunkSize) {
+        uploadId = r.uploadId;
+        chunkSize = r.chunkSize;
+        skip = new Set(r.existingChunks || []);
+        resumed = skip.size > 0;
+      }
+    } catch {
+      // Purani upload server par nahi mili (naya deploy?) — nayi shuru karo.
+      clearPendingUpload(file);
+    }
+  }
+  // 2) Nayi upload shuru karo.
+  if (!uploadId) {
+    const init = await api.post('/api/uploads/init', {
+      filename: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      size: file.size,
+      conversationId,
+    });
+    uploadId = init.uploadId;
+    chunkSize = init.chunkSize;
+    if (!uploadId || !chunkSize) throw new Error('Upload init failed');
+    savePendingUpload(file, conversationId, uploadId);
+  }
+
+  // Upload ke dauran screen on rakho taaki phone lock hokar upload na tode.
+  let wakeLock = await acquireWakeLock();
+  const reLock = async () => {
+    if (document.visibilityState === 'visible' && !wakeLock) {
+      wakeLock = await acquireWakeLock();
+    }
+  };
+  document.addEventListener('visibilitychange', reLock);
 
   const controller = new AbortController();
   const onAbort = () => controller.abort();
@@ -174,16 +256,20 @@ export async function uploadFile(file, conversationId, onProgress, externalSigna
     const total = Math.max(1, Math.ceil(file.size / chunkSize));
     let nextIndex = 0;
     let completed = 0;
+    // Pehle se bheje hue chunks gin lo taaki progress sahi dikhe.
+    for (const idx of skip) if (idx < total) completed += 1;
+    onProgress && onProgress(completed / total);
     let failed = null;
 
     const worker = async () => {
       for (;;) {
         if (failed || controller.signal.aborted) return;
-        const i = nextIndex++;
-        if (i >= total) return;
-        const chunk = file.slice(i * chunkSize, (i + 1) * chunkSize);
+        const idx = nextIndex++;
+        if (idx >= total) return;
+        if (skip.has(idx)) continue;
+        const chunk = file.slice(idx * chunkSize, (idx + 1) * chunkSize);
         try {
-          await uploadChunkWithRetry(uploadId, i, chunk, controller.signal);
+          await uploadChunkWithRetry(uploadId, idx, chunk, controller.signal);
         } catch (err) {
           failed = err;
           controller.abort();
@@ -197,9 +283,20 @@ export async function uploadFile(file, conversationId, onProgress, externalSigna
     const workers = Math.min(UPLOAD_CONCURRENCY, total);
     await Promise.all(Array.from({ length: workers }, () => worker()));
     if (failed) throw failed;
+    if (controller.signal.aborted) {
+      const e = new Error('Upload cancelled');
+      e.name = 'AbortError';
+      throw e;
+    }
     const done = await api.post('/api/uploads/complete', { uploadId });
-    return done; // { fileId, url, filename, mimeType, size }
+    clearPendingUpload(file);
+    return { ...done, resumed };
   } finally {
     if (externalSignal) externalSignal.removeEventListener('abort', onAbort);
+    document.removeEventListener('visibilitychange', reLock);
+    try {
+      await wakeLock?.release();
+    } catch {}
+    wakeLock = null;
   }
 }
