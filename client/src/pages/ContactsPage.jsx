@@ -84,14 +84,10 @@ export default function ContactsPage({ onOpenChat }) {
     }
   };
 
-  const openDm = async (userId) => {
-    try {
-      const conv = await api.post('/api/conversations', { type: 'dm', memberId: userId });
-      await refreshConversations();
-      onOpenChat(conv.id || conv.conversation?.id);
-    } catch (e) {
-      push({ kind: 'error', title: 'Could not open chat', body: e.message });
-    }
+  // Sab log common "chat" me hi baat karte hain — kisi pe tap karo to wahi khulta hai.
+  const openDm = async () => {
+    await refreshConversations();
+    onOpenChat('common-chat');
   };
 
   const row = (u, action) => (
