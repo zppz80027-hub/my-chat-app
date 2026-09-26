@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useChat } from '../context/ChatContext';
-import { uploadFile } from '../utils/api';
+import { uploadFile, findPendingUpload } from '../utils/api';
 import { fmtSize } from '../utils/format';
 import EmojiPicker from './EmojiPicker';
 
@@ -86,7 +86,8 @@ export default function Composer({ convId, replyTo, onCancelReply, editing, onCa
       const kind = isImage ? 'image' : isVideo ? 'video' : 'file';
       const aborter = new AbortController();
       uploadAbort.current = aborter;
-      setUpload({ name: file.name, size: file.size, pct: 0 });
+      const wasPending = !!findPendingUpload(file, convId);
+      setUpload({ name: file.name, size: file.size, pct: 0, resumed: wasPending });
       try {
         const done = await uploadFile(file, convId, (p) => {
           setUpload((u) => (u ? { ...u, pct: Math.round(p * 100) } : u));
@@ -153,7 +154,7 @@ export default function Composer({ convId, replyTo, onCancelReply, editing, onCa
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0 flex-1">
               <div className="truncate text-xs text-gray-300">
-                Uploading {upload.name} ({fmtSize(upload.size)})
+                {upload.resumed ? '↻ Wahi se aage' : 'Uploading'} {upload.name} ({fmtSize(upload.size)})
               </div>
               <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink-700">
                 <div
