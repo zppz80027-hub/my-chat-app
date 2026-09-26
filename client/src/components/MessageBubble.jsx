@@ -173,6 +173,20 @@ export default function MessageBubble({
                 />
               </button>
             )}
+            {m.kind === 'video' && m.file && (
+              <div className="mb-1 overflow-hidden rounded-lg" onClick={(e) => e.stopPropagation()}>
+                <video
+                  src={fileUrl(m.file.url)}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  className="max-h-64 w-full bg-black"
+                />
+                <div className="truncate px-1 py-1 text-xs text-gray-400">
+                  🎬 {m.file.filename} · {fmtSize(m.file.size)}
+                </div>
+              </div>
+            )}
             {m.kind === 'file' && m.file && (
               <a
                 href={fileUrl(m.file.url)}
