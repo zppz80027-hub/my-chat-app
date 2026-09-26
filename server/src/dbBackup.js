@@ -39,33 +39,36 @@ function signParams(params, apiSecret) {
   return crypto.createHash('sha1').update(sorted + apiSecret).digest('hex');
 }
 
-/** Kisi slot ka backup download karo. Safal par true. */
+/**
+ * Kisi slot ka backup download karo.
+ * Returns: 'ok' | 'not_found' (slot maujood hi nahi) | 'error' (network/
+ * timeout/kharaab jawab — remote ki haalat PATA NAHI).
+ * 'not_found' aur 'error' me farq zaroori hai: fail-closed guard ke liye.
+ */
 function downloadSlot(publicId, destPath) {
   return new Promise((resolve) => {
+    const giveUp = (status) => {
+      try { fs.unlinkSync(destPath); } catch {}
+      resolve(status);
+    };
     try {
       const file = fs.createWriteStream(destPath);
       const req = https.get(slotUrl(publicId), { timeout: 60000 }, (res) => {
-        if (res.statusCode !== 200) {
-          try { fs.unlinkSync(destPath); } catch {}
-          return resolve(false);
-        }
+        if (res.statusCode === 404) return giveUp('not_found');
+        if (res.statusCode !== 200) return giveUp('error');
         res.pipe(file);
         file.on('finish', () => {
           file.close();
-          resolve(true);
+          resolve('ok');
         });
       });
-      req.on('error', () => {
-        try { fs.unlinkSync(destPath); } catch {}
-        resolve(false);
-      });
+      req.on('error', () => giveUp('error'));
       req.on('timeout', () => {
         req.destroy();
-        try { fs.unlinkSync(destPath); } catch {}
-        resolve(false);
+        giveUp('error');
       });
     } catch {
-      resolve(false);
+      resolve('error');
     }
   });
 }
@@ -94,13 +97,17 @@ function countDb(dbPath) {
 }
 
 /**
- * Guard: kya upload skip karna chahiye?
- * Agar remote backup me local se zyada messages hain, to local DB purani/
- * khaali hai — upload karne se achchha backup mit jayega. Is case me skip.
+ * Guard: kya upload skip karna chahiye? (FAIL-CLOSED)
+ * - local khaali/kharaab ho to KABHI upload mat karo.
+ * - remote ka download fail ho ('error') to bhi SKIP — pata nahi ke aadhar par
+ *   achchha backup kabhi mat mitao. Yahi pichhli baar ki chook thi.
+ * - remote maujood hi na ho ('not_found') to pehla backup banne do.
+ * - remote me local se zyada messages hon to skip (local purana/khaali hai).
  */
-function shouldSkipBackup(localCounts, remoteCounts) {
-  if (!remoteCounts) return false; // remote khaali/kharaab — upload karo
-  if (!localCounts) return true; // local khaali/kharaab — remote ko mat chhedo
+function shouldSkipBackup(localCounts, remoteStatus, remoteCounts) {
+  if (!localCounts || localCounts.messages === 0) return true;
+  if (remoteStatus === 'error') return true;
+  if (remoteStatus === 'not_found' || !remoteCounts) return false;
   return remoteCounts.messages > localCounts.messages;
 }
 
@@ -201,21 +208,23 @@ async function backupToCloudinary() {
     const localCounts = countDb(dbPath);
 
     // Pehle current remote backup dekho — kahin khaali DB achchhi copy na mitaye.
+    // FAIL-CLOSED: download fail ho to upload bilkul mat karo.
     const tmpMain = path.join('/tmp', `cloude-remote-main-${Date.now()}.db`);
-    const remoteOk = await downloadSlot(SLOT_MAIN, tmpMain);
-    const remoteCounts = remoteOk ? countDb(tmpMain) : null;
+    const remoteStatus = await downloadSlot(SLOT_MAIN, tmpMain);
+    const remoteCounts = remoteStatus === 'ok' ? countDb(tmpMain) : null;
 
-    if (shouldSkipBackup(localCounts, remoteCounts)) {
+    if (shouldSkipBackup(localCounts, remoteStatus, remoteCounts)) {
       log(
-        `SKIP: local DB me ${localCounts ? localCounts.messages : 0} msg, ` +
-          `remote me ${remoteCounts.messages} msg — remote mehfooz rakha`
+        `SKIP: local=${localCounts ? localCounts.messages : 0} msg, ` +
+          `remote=[${remoteStatus}]${remoteCounts ? remoteCounts.messages : '?'} msg — remote mehfooz rakha`
       );
       try { fs.unlinkSync(tmpMain); } catch {}
       return false;
     }
 
-    // Rotation: purana main -> prev (pichhli peedhi mehfooz).
-    if (remoteOk && remoteCounts) {
+    // Rotation: purana main -> prev (pichhli peedhi mehfooz). Sirf tab jab
+    // remote sahi-salaamat download hua ho.
+    if (remoteStatus === 'ok' && remoteCounts) {
       const okPrev = await uploadSlot(SLOT_PREV, tmpMain);
       if (!okPrev) log('Prev slot rotation fail — main phir bhi upload hoga');
     }
@@ -241,12 +250,12 @@ async function restoreFromCloudinary() {
     const tmpMain = path.join('/tmp', `cloude-restore-main-${stamp}.db`);
     const tmpPrev = path.join('/tmp', `cloude-restore-prev-${stamp}.db`);
 
-    const [okMain, okPrev] = await Promise.all([
+    const [stMain, stPrev] = await Promise.all([
       downloadSlot(SLOT_MAIN, tmpMain),
       downloadSlot(SLOT_PREV, tmpPrev),
     ]);
-    const cMain = okMain ? countDb(tmpMain) : null;
-    const cPrev = okPrev ? countDb(tmpPrev) : null;
+    const cMain = stMain === 'ok' ? countDb(tmpMain) : null;
+    const cPrev = stPrev === 'ok' ? countDb(tmpPrev) : null;
 
     // Zyada messages wali copy chuno (barabar ho to main).
     let best = null;
