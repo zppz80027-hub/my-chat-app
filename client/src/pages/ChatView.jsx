@@ -18,6 +18,7 @@ import MessageMenu from '../components/MessageMenu';
 import Composer from '../components/Composer';
 import TypingIndicator, { TypingDots } from '../components/TypingIndicator';
 import ConversationInfo from '../components/ConversationInfo';
+import { wallpaperStyle } from '../lib/wallpaper';
 import SearchPanel from '../components/SearchPanel';
 import { ChatSkeleton, EmptyState } from '../components/States';
 
@@ -243,7 +244,7 @@ export default function ChatView({ convId, onBack, isOverlay }) {
       )}
 
       {/* Messages */}
-      <div ref={scrollRef} onScroll={handleScroll} className="chat-wallpaper flex-1 overflow-y-auto py-2">
+      <div ref={scrollRef} onScroll={handleScroll} className="chat-wallpaper flex-1 overflow-y-auto py-2" style={wallpaperStyle(conv?.wallpaper, convId)}>
         <div ref={topSentinel} />
         {state?.loadingMore && (
           <div className="flex justify-center py-2">
