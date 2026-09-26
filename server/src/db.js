@@ -124,6 +124,7 @@ db.prepare(
 db.prepare("DELETE FROM users WHERE LOWER(display_name) LIKE '%demo%' OR LOWER(username) LIKE '%demo%'").run();
 // Purani DMs hatao — sirf common "chat" group rahega ("bas chat hi").
 db.prepare("DELETE FROM conversations WHERE type = 'dm'").run();
+db.prepare("DELETE FROM conversations WHERE type = 'group' AND id != 'common-chat'").run(); // sirf "chat" group rahegi
 // Sabka display naam "chat" — purane Mehmaan-XXXX / custom naam ek jaise karo.
 db.prepare("UPDATE users SET display_name = 'chat' WHERE display_name != 'chat'").run();
 // Sab existing users ko common chat ka member banao.
