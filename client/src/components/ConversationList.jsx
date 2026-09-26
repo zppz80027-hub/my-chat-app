@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { api } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { useChat } from '../context/ChatContext';
@@ -8,6 +9,76 @@ import { ListSkeleton, EmptyState } from './States';
 
 function dmPeer(conv, myId) {
   return (conv.members || []).find((m) => m.id !== myId) || null;
+}
+
+// Chats tab khali ho to yahin sab log dikhao — tap karte hi seedha chat khule.
+function StartChatting({ onSelect }) {
+  const { isOnline } = useSocket();
+  const { refreshConversations } = useChat();
+  const [people, setPeople] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get('/api/users')
+      .then((list) => {
+        if (!cancelled) setPeople(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {
+        if (!cancelled) setPeople([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openDm = async (userId) => {
+    try {
+      const conv = await api.post('/api/conversations', { type: 'dm', memberId: userId });
+      await refreshConversations();
+      onSelect(conv.id || conv.conversation?.id);
+    } catch {
+      /* silent — row stays for retry */
+    }
+  };
+
+  if (loading) return <ListSkeleton rows={5} />;
+
+  return (
+    <div className="flex-1 overflow-y-auto pb-24 md:pb-4">
+      <div className="px-4 py-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+        Tap anyone to start chatting
+      </div>
+      {people.length === 0 ? (
+        <EmptyState
+          icon="💬"
+          title="No people yet"
+          body="Ask your friend to open the app once — their name will appear here."
+        />
+      ) : (
+        people.map((u) => (
+          <button
+            key={u.id}
+            onClick={() => openDm(u.id)}
+            className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-ink-800/60"
+          >
+            <Avatar name={u.displayName} src={u.avatarUrl} size={48} online={isOnline(u.id)} />
+            <span className="min-w-0 flex-1 border-b border-ink-800 pb-2.5">
+              <span className="block truncate text-[15px] text-gray-100">{u.displayName}</span>
+              <span className="block truncate text-xs text-gray-500">
+                @{u.username}
+                {u.about ? ` \u00b7 ${u.about}` : ''}
+              </span>
+            </span>
+          </button>
+        ))
+      )}
+    </div>
+  );
 }
 
 export default function ConversationList({ activeId, onSelect }) {
@@ -39,15 +110,15 @@ export default function ConversationList({ activeId, onSelect }) {
         />
       </div>
       {filtered.length === 0 ? (
-        <EmptyState
-          icon="💬"
-          title={query ? 'No chats found' : 'No chats yet'}
-          body={
-            query
-              ? 'Try a different search.'
-              : 'Tap + to start a conversation with a contact or create a group.'
-          }
-        />
+        query ? (
+          <EmptyState
+            icon="💬"
+            title="No chats found"
+            body="Try a different search."
+          />
+        ) : (
+          <StartChatting onSelect={onSelect} />
+        )
       ) : (
         <div className="flex-1 overflow-y-auto pb-24 md:pb-4">
           {filtered.map((conv) => {
