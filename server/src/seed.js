@@ -7,6 +7,9 @@ const { db } = require('./db');
 const { createMessage, createSystemMessage } = require('./lib/messages');
 
 async function seedIfEmpty() {
+  // Demo seeding band hai — app me ab sirf common "chat" group hota hai,
+  // isliye demo users/groups kabhi nahi banne chahiye.
+  return false;
   const count = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
   if (count > 0) return false;
 
