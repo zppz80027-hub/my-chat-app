@@ -23,6 +23,16 @@ export function setToken(token) {
   }
 }
 
+// 401 (user delete / token invalid) pe khud-b-khud dobara judne ka handler.
+// AuthContext ise set karta hai. Ek saath kayi request fail hon to ek hi
+// recovery chalti hai (stampede nahi).
+let onAuthFailure = null;
+let recoveryPromise = null;
+
+export function setAuthFailureHandler(fn) {
+  onAuthFailure = fn;
+}
+
 /**
  * Build an authenticated URL for <img> / <a> tags. The backend accepts the
  * JWT as a `token` query param for these (it cannot read headers there).
@@ -34,7 +44,7 @@ export function fileUrl(url) {
   return `${url}${sep}token=${encodeURIComponent(token || '')}`;
 }
 
-async function request(path, { method = 'GET', body, headers = {}, signal } = {}) {
+async function request(path, { method = 'GET', body, headers = {}, signal } = {}, _retried = false) {
   const token = getToken();
   const h = { ...headers };
   if (token) h['Authorization'] = `Bearer ${token}`;
@@ -64,6 +74,25 @@ async function request(path, { method = 'GET', body, headers = {}, signal } = {}
     data = null;
   }
   if (!res.ok) {
+    // Session khatam (server update me user ud gaya) to ek baar recovery
+    // karke request dobara bhejo — user ko error nahi dikhega.
+    if (
+      res.status === 401 &&
+      !_retried &&
+      !path.startsWith('/api/auth/') &&
+      typeof onAuthFailure === 'function'
+    ) {
+      if (!recoveryPromise) {
+        recoveryPromise = Promise.resolve()
+          .then(() => onAuthFailure())
+          .catch(() => false)
+          .finally(() => {
+            recoveryPromise = null;
+          });
+      }
+      const recovered = await recoveryPromise;
+      if (recovered) return request(path, { method, body, headers, signal }, true);
+    }
     const msg =
       (data && (data.error || data.message)) || `Request failed (${res.status})`;
     const err = new Error(typeof msg === 'string' ? msg : `Request failed (${res.status})`);
