@@ -82,7 +82,8 @@ export default function Composer({ convId, replyTo, onCancelReply, editing, onCa
         continue;
       }
       const isImage = file.type.startsWith('image/');
-      const kind = isImage ? 'image' : 'file';
+      const isVideo = file.type.startsWith('video/');
+      const kind = isImage ? 'image' : isVideo ? 'video' : 'file';
       const aborter = new AbortController();
       uploadAbort.current = aborter;
       setUpload({ name: file.name, size: file.size, pct: 0 });
