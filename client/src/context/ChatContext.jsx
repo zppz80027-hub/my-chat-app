@@ -215,6 +215,14 @@ export function ChatProvider({ children }) {
   useEffect(() => {
     const unsubs = [];
 
+    // Shared wallpaper badla to turant lagao (sab ko dikhega).
+    unsubs.push(
+      subscribe('conversation:wallpaper', ({ conversationId, wallpaper }) => {
+        if (!conversationId) return;
+        updateConversation(conversationId, { wallpaper: wallpaper || null });
+      })
+    );
+
     unsubs.push(
       subscribe('message:new', (m) => {
         if (!m || !m.id || !m.conversationId) return;
