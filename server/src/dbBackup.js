@@ -4,21 +4,37 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const crypto = require('crypto');
 const config = require('./config');
 
 const CLOUD_NAME = 'tzfbjslf';
-const UPLOAD_PRESET = 'cloude-upload';
-const BACKUP_PUBLIC_ID = 'cloude-chat-db-backup';
+const API_KEY = '659554747298259';
+// API secret Render env var se aata hai (kabhi git me nahi).
+const BACKUP_PUBLIC_ID = 'cloude/cloude-chat-db-backup';
 const BACKUP_URL = `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/${BACKUP_PUBLIC_ID}`;
 
 function log(...args) {
   console.log('[db-backup]', ...args);
 }
 
-/** DB file ko Cloudinary par upload karo (fixed public_id se overwrite). */
+/** Cloudinary signed upload ke liye signature banao. */
+function signParams(params, apiSecret) {
+  const sorted = Object.keys(params)
+    .sort()
+    .map((k) => `${k}=${params[k]}`)
+    .join('&');
+  return crypto.createHash('sha1').update(sorted + apiSecret).digest('hex');
+}
+
+/** DB file ko Cloudinary par upload karo (signed, overwrite=true). */
 function backupToCloudinary() {
   return new Promise((resolve) => {
     try {
+      const apiSecret = process.env.CLOUDINARY_API_SECRET;
+      if (!apiSecret) {
+        log('CLOUDINARY_API_SECRET env var nahi hai, backup skip');
+        return resolve(false);
+      }
       const dbPath = config.dbPath;
       if (!fs.existsSync(dbPath)) return resolve(false);
 
@@ -35,23 +51,32 @@ function backupToCloudinary() {
       const stat = fs.statSync(dbPath);
       if (stat.size === 0) return resolve(false);
 
-      const boundary = `----dbbackup${Date.now()}`;
       const fileData = fs.readFileSync(dbPath);
-      const filename = 'cloude-backup.db';
+      const timestamp = Math.floor(Date.now() / 1000);
+      const params = {
+        overwrite: 'true',
+        public_id: BACKUP_PUBLIC_ID,
+        timestamp: String(timestamp),
+      };
+      const signature = signParams(params, apiSecret);
 
-      const part1 = Buffer.from(
+      const boundary = `----dbbackup${Date.now()}`;
+      const fields = {
+        ...params,
+        api_key: API_KEY,
+        signature,
+      };
+      let part1 = '';
+      for (const [k, v] of Object.entries(fields)) {
+        part1 += `--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`;
+      }
+      part1 +=
         `--${boundary}\r\n` +
-        `Content-Disposition: form-data; name="upload_preset"\r\n\r\n` +
-        `${UPLOAD_PRESET}\r\n` +
-        `--${boundary}\r\n` +
-        `Content-Disposition: form-data; name="public_id"\r\n\r\n` +
-        `${BACKUP_PUBLIC_ID}\r\n` +
-        `--${boundary}\r\n` +
-        `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
-        `Content-Type: application/octet-stream\r\n\r\n`
-      );
-      const part2 = Buffer.from(`\r\n--${boundary}--\r\n`);
-      const body = Buffer.concat([part1, fileData, part2]);
+        `Content-Disposition: form-data; name="file"; filename="cloude-backup.db"\r\n` +
+        `Content-Type: application/octet-stream\r\n\r\n`;
+      const part1Buf = Buffer.from(part1);
+      const part2Buf = Buffer.from(`\r\n--${boundary}--\r\n`);
+      const body = Buffer.concat([part1Buf, fileData, part2Buf]);
 
       const req = https.request(
         {
