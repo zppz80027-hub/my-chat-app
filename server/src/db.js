@@ -113,6 +113,30 @@ CREATE INDEX IF NOT EXISTS idx_reads_user ON message_reads (user_id);
 
 db.exec(SCHEMA);
 
+// --- Common "chat" group: sab log ek hi chat me --------------------------------
+// Ek hi group hota hai jisme sab members hain. Chat pe tap karte hi sab usi me
+// baat karte hain — alag-alag DM banane ki zaroorat nahi.
+const COMMON_CHAT_ID = 'common-chat';
+db.prepare(
+  "INSERT OR IGNORE INTO conversations (id, type, name, created_by, created_at) VALUES (?, 'group', 'chat', NULL, ?)"
+).run(COMMON_CHAT_ID, Date.now());
+// "Demo" jaise test/demo users hatao — sirf asli log rahenge.
+db.prepare("DELETE FROM users WHERE LOWER(display_name) LIKE '%demo%' OR LOWER(username) LIKE '%demo%'").run();
+// Purani DMs hatao — sirf common "chat" group rahega ("bas chat hi").
+db.prepare("DELETE FROM conversations WHERE type = 'dm'").run();
+// Sabka display naam "chat" — purane Mehmaan-XXXX / custom naam ek jaise karo.
+db.prepare("UPDATE users SET display_name = 'chat' WHERE display_name != 'chat'").run();
+// Sab existing users ko common chat ka member banao.
+{
+  const addMember = db.prepare(
+    'INSERT OR IGNORE INTO conversation_members (conversation_id, user_id, joined_at) VALUES (?, ?, ?)'
+  );
+  const now = Date.now();
+  for (const u of db.prepare('SELECT id FROM users').all()) {
+    addMember.run(COMMON_CHAT_ID, u.id, now);
+  }
+}
+
 // --- Small shared data-access helpers ---------------------------------------
 
 function getUserById(id) {
@@ -133,4 +157,4 @@ function getConversation(id) {
   return db.prepare('SELECT * FROM conversations WHERE id = ?').get(id);
 }
 
-module.exports = { db, getUserById, getUserByUsername, isMember, getConversation };
+module.exports = { db, getUserById, getUserByUsername, isMember, getConversation, COMMON_CHAT_ID };
