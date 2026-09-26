@@ -12,7 +12,7 @@ services:
     name: chatapp
     runtime: node
     plan: free
-    buildCommand: npm run install:all && npm run build && bash server/scripts/fetch-litestream.sh
+    buildCommand: NPM_CONFIG_PRODUCTION=false npm run install:all && npm run build && bash server/scripts/fetch-litestream.sh
     startCommand: bash server/scripts/boot.sh
     healthCheckPath: /api/health
     envVars:
