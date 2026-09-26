@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { SocketProvider, useSocket } from './context/SocketContext';
@@ -75,13 +75,22 @@ function TabContent({ tab, activeId, onSelectChat, onOpenChat }) {
 
 function Shell() {
   const { user, loading } = useAuth();
-  const { activeId, setActiveId, unreadTotal } = useChat();
+  const { activeId, setActiveId, unreadTotal, conversations } = useChat();
   const [tab, setTab] = useState('chats');
   const [showNewChat, setShowNewChat] = useState(false);
 
   useEffect(() => {
     document.title = unreadTotal > 0 ? `(${unreadTotal}) Cloude app` : 'Cloude app';
   }, [unreadTotal]);
+
+  // App khul te hi sabse recent chat seedha khul jaye (sirf ek baar).
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (!autoOpened.current && !activeId && conversations.length > 0) {
+      autoOpened.current = true;
+      setActiveId(conversations[0].id);
+    }
+  }, [activeId, conversations, setActiveId]);
 
   if (loading) {
     return (
