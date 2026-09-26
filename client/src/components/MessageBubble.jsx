@@ -66,6 +66,13 @@ export default function MessageBubble({
   highlight,
 }) {
   const m = message;
+  // Purani upload ki hui movie (kind 'file') bhi player me chale.
+  const isVideoMsg =
+    !!m?.file &&
+    (m.kind === 'video' ||
+      (m.kind === 'file' &&
+        (String(m.file.mimeType || '').startsWith('video/') ||
+          /\.(mp4|m4v|webm|mkv|mov|avi)$/i.test(m.file.filename || ''))));
   const longPressTimer = useRef(null);
   const touchStartX = useRef(null);
   const menuOpened = useRef(false);
@@ -173,7 +180,7 @@ export default function MessageBubble({
                 />
               </button>
             )}
-            {m.kind === 'video' && m.file && (
+            {isVideoMsg && (
               <div className="mb-1 overflow-hidden rounded-lg" onClick={(e) => e.stopPropagation()}>
                 <video
                   src={fileUrl(m.file.url)}
@@ -187,7 +194,7 @@ export default function MessageBubble({
                 </div>
               </div>
             )}
-            {m.kind === 'file' && m.file && (
+            {m.kind === 'file' && m.file && !isVideoMsg && (
               <a
                 href={fileUrl(m.file.url)}
                 download={m.file.filename}
