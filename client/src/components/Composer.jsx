@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useChat } from '../context/ChatContext';
-import { uploadFileSmart, findPendingUpload } from '../utils/api';
+import { uploadFileSmart, findPendingUpload, findCloudinaryResume } from '../utils/api';
 import { fmtSize } from '../utils/format';
 import EmojiPicker from './EmojiPicker';
 
@@ -86,7 +86,7 @@ export default function Composer({ convId, replyTo, onCancelReply, editing, onCa
       const kind = isImage ? 'image' : isVideo ? 'video' : 'file';
       const aborter = new AbortController();
       uploadAbort.current = aborter;
-      const wasPending = !!findPendingUpload(file, convId);
+      const wasPending = !!findPendingUpload(file, convId) || !!findCloudinaryResume(file);
       setUpload({ name: file.name, size: file.size, pct: 0, resumed: wasPending });
       try {
         const done = await uploadFileSmart(file, convId, (p) => {

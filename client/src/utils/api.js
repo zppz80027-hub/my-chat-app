@@ -455,8 +455,43 @@ export async function uploadFileDirectToR2(file, conversationId, onProgress, ext
 const CLOUDINARY_CLOUD_NAME = 'tzfbjslf';
 const CLOUDINARY_UPLOAD_PRESET = 'cloude-upload';
 
+// ---- Cloudinary resume: band hone par wahi se aage ----
+// Har file ke liye uploadId + poore hue chunks localStorage me save rakho.
+const CLOUDINARY_RESUME_TTL = 24 * 60 * 60 * 1000; // 24h
+function cloudinaryResumeKey(file) {
+  return `cloude-cloudinary-resume:${file.name}|${file.size}|${file.lastModified}`;
+}
+export function findCloudinaryResume(file) {
+  try {
+    const raw = localStorage.getItem(cloudinaryResumeKey(file));
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data.uploadId || Date.now() - data.ts > CLOUDINARY_RESUME_TTL) {
+      localStorage.removeItem(cloudinaryResumeKey(file));
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+function saveCloudinaryResume(file, uploadId, doneChunks, totalChunks) {
+  try {
+    localStorage.setItem(
+      cloudinaryResumeKey(file),
+      JSON.stringify({ uploadId, doneChunks, totalChunks, ts: Date.now() })
+    );
+  } catch {}
+}
+function clearCloudinaryResume(file) {
+  try {
+    localStorage.removeItem(cloudinaryResumeKey(file));
+  } catch {}
+}
+
 /**
  * File seedha Cloudinary par upload karo (XMLHttpRequest taaki progress mile).
+ * Badi file tukdon me jati hai; app band ho to dobara chunne par wahi se aage.
  * Returns {fileId, url, filename, mimeType, size} — bilkul uploadFile() jaisa
  * shape, taaki Composer ko farak na pade.
  */
@@ -479,7 +514,12 @@ export async function uploadFileToCloudinary(file, conversationId, onProgress, e
   const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB per chunk
   const useChunks = file.size > 50 * 1024 * 1024;
   const totalChunks = useChunks ? Math.ceil(file.size / CHUNK_SIZE) : 1;
-  const uploadId = `cloude-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  // Resume: pehle ki adhoori upload ka uploadId + progress nikalo.
+  const saved = useChunks ? findCloudinaryResume(file) : null;
+  const uploadId = saved?.uploadId || `cloude-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const startChunk = saved && saved.totalChunks === totalChunks ? saved.doneChunks || 0 : 0;
+  if (startChunk > 0 && onProgress) onProgress(startChunk / totalChunks);
 
   /** Ek chunk bhejo (retry ke saath). */
   const sendChunk = (chunkBlob, start, end, isLast, onChunkProgress) =>
@@ -527,7 +567,7 @@ export async function uploadFileToCloudinary(file, conversationId, onProgress, e
 
   try {
     let result = null;
-    for (let i = 0; i < totalChunks; i++) {
+    for (let i = startChunk; i < totalChunks; i++) {
       const start = i * CHUNK_SIZE;
       const end = Math.min(start + CHUNK_SIZE, file.size) - 1;
       const chunk = useChunks ? file.slice(start, end + 1) : file;
@@ -553,11 +593,16 @@ export async function uploadFileToCloudinary(file, conversationId, onProgress, e
       }
       if (lastErr) throw lastErr;
       if (onProgress) onProgress((i + 1) / totalChunks);
+      // Har chunk ke baad progress save — app band ho to wahi se aage.
+      if (useChunks) saveCloudinaryResume(file, uploadId, i + 1, totalChunks);
     }
 
     if (!result?.secure_url) {
       throw new Error(result?.error?.message || 'Cloudinary upload failed');
     }
+
+    // Ho gaya — resume data hatao.
+    if (useChunks) clearCloudinaryResume(file);
 
     // Server par register karo taaki chat message ban sake.
     const reg = await api.post('/api/uploads/cloudinary', {
