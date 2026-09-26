@@ -35,6 +35,13 @@ router.get(
       return res.status(403).json({ error: 'Not a member of this conversation' });
     }
 
+    // Cloudinary-backed file: auth check ho chuka hai, ab seedha Cloudinary
+    // CDN URL par 302 redirect. <video>/<img>/<a> sab redirect follow karte
+    // hain. File Cloudinary par permanent hai — bina card ke 25GB free.
+    if (up.storage === 'cloudinary' && up.cloudinary_url) {
+      return res.redirect(302, up.cloudinary_url);
+    }
+
     // R2-backed file: auth check ho chuka hai, ab short-lived presigned URL par
     // 302 redirect. <video>/<img>/<a> sab redirect follow karte hain. Range
     // requests bhi chalti hain — har range request dobara isi endpoint par

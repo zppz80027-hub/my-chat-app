@@ -131,6 +131,7 @@ db.exec(SCHEMA);
     db.exec("ALTER TABLE uploads ADD COLUMN storage TEXT NOT NULL DEFAULT 'local'");
   if (!cols.includes('r2_key')) db.exec('ALTER TABLE uploads ADD COLUMN r2_key TEXT');
   if (!cols.includes('r2_upload_id')) db.exec('ALTER TABLE uploads ADD COLUMN r2_upload_id TEXT');
+  if (!cols.includes('cloudinary_url')) db.exec('ALTER TABLE uploads ADD COLUMN cloudinary_url TEXT');
 }
 
 const COMMON_CHAT_ID = 'common-chat';

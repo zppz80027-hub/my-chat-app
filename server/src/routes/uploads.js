@@ -239,6 +239,55 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
+// CLOUDINARY DIRECT UPLOAD (phone -> Cloudinary CDN, server bypass).
+// Client uploads directly to Cloudinary (unsigned preset), then registers
+// the result here. No card needed, 25GB free, file is permanent.
+//   POST /api/uploads/cloudinary {filename, mimeType, size, cloudinaryUrl, publicId, conversationId}
+router.post(
+  '/cloudinary',
+  ah(async (req, res) => {
+    const { filename, mimeType, size, cloudinaryUrl, publicId, conversationId } = req.body || {};
+    if (typeof filename !== 'string' || !filename) {
+      return res.status(400).json({ error: 'filename is required' });
+    }
+    if (typeof cloudinaryUrl !== 'string' || !cloudinaryUrl.startsWith('https://')) {
+      return res.status(400).json({ error: 'valid cloudinaryUrl is required' });
+    }
+    if (typeof conversationId !== 'string' || !isMember(conversationId, req.user.id)) {
+      return res.status(403).json({ error: 'Not a member of this conversation' });
+    }
+    const totalSize = Number(size);
+    if (!Number.isFinite(totalSize) || totalSize <= 0 || totalSize > 10 * 1024 ** 3) {
+      return res.status(400).json({ error: 'Invalid size' });
+    }
+
+    const fileId = uuidv4();
+    db.prepare(
+      `INSERT INTO uploads (id, filename, mime_type, size, conversation_id, uploader_id, status, storage, cloudinary_url, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'complete', 'cloudinary', ?, ?)`
+    ).run(
+      fileId,
+      safeFilename(filename),
+      typeof mimeType === 'string' && mimeType ? mimeType.slice(0, 120) : 'application/octet-stream',
+      Math.floor(totalSize),
+      conversationId,
+      req.user.id,
+      cloudinaryUrl.slice(0, 500),
+      Date.now()
+    );
+    console.log(`[uploads] cloudinary ${fileId} -> ${cloudinaryUrl.slice(0, 80)}... (${totalSize} bytes)`);
+
+    res.status(201).json({
+      fileId,
+      url: `/api/files/${fileId}`,
+      filename: safeFilename(filename),
+      mimeType: typeof mimeType === 'string' && mimeType ? mimeType : 'application/octet-stream',
+      size: Math.floor(totalSize),
+    });
+  })
+);
+
+// ---------------------------------------------------------------------------
 // DIRECT-TO-R2 FAST UPLOAD (phone -> Cloudflare edge, US server bypass).
 //   POST /api/uploads/r2-init      {filename, mimeType, size, conversationId}
 //   POST /api/uploads/r2-part-urls {fileId, parts:[1,2,...]}

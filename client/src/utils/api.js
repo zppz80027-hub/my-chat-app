@@ -447,12 +447,101 @@ export async function uploadFileDirectToR2(file, conversationId, onProgress, ext
   }
 }
 
+// ---- DIRECT-TO-CLOUDINARY FAST UPLOAD ----
+// Phone seedha Cloudinary ke CDN par file bhejta hai — slow US server beech
+// me nahi aata. Bina credit card ke 25GB free, file permanent rehti hai.
+// Unsigned preset hai, isliye koi secret client me nahi chahiye.
+
+const CLOUDINARY_CLOUD_NAME = 'tzfbjslf';
+const CLOUDINARY_UPLOAD_PRESET = 'cloude-upload';
+
 /**
- * Smart upload: pehle direct-to-R2 (tez), kuch bhi fail ho to purane relay
- * uploadFile() par automatically gir jao. Cancel (AbortError) par fallback
- * nahi — user ne khud roka hai.
+ * File seedha Cloudinary par upload karo (XMLHttpRequest taaki progress mile).
+ * Returns {fileId, url, filename, mimeType, size} — bilkul uploadFile() jaisa
+ * shape, taaki Composer ko farak na pade.
+ */
+export async function uploadFileToCloudinary(file, conversationId, onProgress, externalSignal) {
+  const isVideo = (file.type || '').startsWith('video/');
+  const isImage = (file.type || '').startsWith('image/');
+  const resourceType = isVideo ? 'video' : isImage ? 'image' : 'raw';
+  const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`;
+
+  // Wake Lock — upload ke dauran screen on rakho.
+  let wakeLock = await acquireWakeLock();
+  const reLock = async () => {
+    if (document.visibilityState === 'visible' && !wakeLock) {
+      wakeLock = await acquireWakeLock();
+    }
+  };
+  document.addEventListener('visibilitychange', reLock);
+
+  try {
+    const { secure_url, public_id } = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      if (externalSignal) {
+        if (externalSignal.aborted) {
+          reject(new DOMException('Aborted', 'AbortError'));
+          return;
+        }
+        externalSignal.addEventListener('abort', () => xhr.abort(), { once: true });
+      }
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+      });
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (data.secure_url) resolve(data);
+            else reject(new Error(data.error?.message || 'Cloudinary upload failed'));
+          } catch {
+            reject(new Error('Cloudinary bad response'));
+          }
+        } else {
+          reject(new Error(`Cloudinary upload failed (${xhr.status})`));
+        }
+      });
+      xhr.addEventListener('error', () => reject(new Error('Cloudinary network error')));
+      xhr.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+      xhr.open('POST', uploadUrl);
+      xhr.send(fd);
+    });
+
+    // Server par register karo taaki chat message ban sake.
+    const reg = await api.post('/api/uploads/cloudinary', {
+      filename: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      size: file.size,
+      cloudinaryUrl: secure_url,
+      publicId: public_id,
+      conversationId,
+    });
+    if (onProgress) onProgress(1);
+    return reg;
+  } finally {
+    document.removeEventListener('visibilitychange', reLock);
+    try {
+      await wakeLock?.release();
+    } catch {}
+    wakeLock = null;
+  }
+}
+
+/**
+ * Smart upload: pehle direct-to-Cloudinary (tez + permanent), kuch bhi fail
+ * ho to R2 phir purane relay uploadFile() par automatically gir jao. Cancel
+ * (AbortError) par fallback nahi — user ne khud roka hai.
  */
 export async function uploadFileSmart(file, conversationId, onProgress, externalSignal) {
+  try {
+    return await uploadFileToCloudinary(file, conversationId, onProgress, externalSignal);
+  } catch (err) {
+    if (err.name === 'AbortError' || (externalSignal && externalSignal.aborted)) throw err;
+    // Cloudinary fail → purana R2/relay rasta try karo.
+  }
   try {
     return await uploadFileDirectToR2(file, conversationId, onProgress, externalSignal);
   } catch (err) {
