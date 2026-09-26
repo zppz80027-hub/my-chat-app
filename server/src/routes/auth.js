@@ -45,6 +45,12 @@ router.post(
       'INSERT INTO users (id, username, password_hash, display_name, created_at) VALUES (?, ?, ?, ?, ?)'
     ).run(id, username, password_hash, name, now);
 
+    // Naya user seedha common "chat" group ka member banta hai.
+    const { COMMON_CHAT_ID } = require('../db');
+    db.prepare(
+      'INSERT OR IGNORE INTO conversation_members (conversation_id, user_id, joined_at) VALUES (?, ?, ?)'
+    ).run(COMMON_CHAT_ID, id, now);
+
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
     res.status(201).json({ token: signToken(id), user: publicUser(user) });
   })
@@ -81,11 +87,8 @@ function randomSecret() {
 router.post(
   '/guest',
   ah(async (req, res) => {
-    const { name } = req.body || {};
-    const displayName = typeof name === 'string' ? name.trim().slice(0, 60) : '';
-    if (!displayName || !GUEST_NAME_RE.test(displayName)) {
-      return res.status(400).json({ error: 'Please enter your name (1-60 characters).' });
-    }
+    // Sabka naam "chat" hi hota hai — client kuch bhi bheje.
+    const displayName = 'chat';
 
     // Unique, unguessable username; the random password hash means the
     // /login endpoint can never be used to hijack a guest identity.
