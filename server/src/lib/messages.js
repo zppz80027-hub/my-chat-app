@@ -3,7 +3,7 @@
 const { v4: uuidv4 } = require('uuid');
 const { db, isMember } = require('../db');
 
-const KINDS = ['text', 'image', 'file', 'system'];
+const KINDS = ['text', 'image', 'video', 'file', 'system'];
 
 function httpError(status, message) {
   const e = new Error(message);
@@ -27,7 +27,7 @@ function createMessage({ conversationId, senderId, kind, text, replyTo, fileId }
     }
     if (text.length > 20000) throw httpError(400, 'Message text too long (max 20000 chars)');
     text = text.trim();
-  } else if (kind === 'image' || kind === 'file') {
+  } else if (kind === 'image' || kind === 'video' || kind === 'file') {
     if (!fileId) throw httpError(400, 'fileId is required for image/file messages');
     const up = db.prepare('SELECT * FROM uploads WHERE id = ?').get(fileId);
     if (!up || up.status !== 'complete') throw httpError(400, 'Upload not found or not complete');
