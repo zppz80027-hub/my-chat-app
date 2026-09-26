@@ -2,7 +2,11 @@
 // Exported as a factory taking the Socket.IO server so REST writes can also
 // broadcast realtime events.
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
+const config = require('../config');
 const { db, isMember, getConversation } = require('../db');
 const { requireAuth, ah } = require('../middleware/auth');
 const { userSummary, messagePreview, getMessages, serializeMessage } = require('../lib/serializers');
@@ -10,6 +14,44 @@ const { createMessage, createSystemMessage, httpError } = require('../lib/messag
 
 module.exports = function conversationsRouter(io) {
   const router = express.Router();
+
+  // ---- Shared group wallpaper ---------------------------------------------
+  const WALLPAPER_PRESETS = ['dots', 'midnight', 'ocean', 'forest', 'sunset', 'grape', 'ember', 'slate'];
+  const wallpapersDir = path.join(config.uploadDir, 'wallpapers');
+  fs.mkdirSync(wallpapersDir, { recursive: true });
+  const wallpaperUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, wallpapersDir),
+      filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+        cb(null, `${req.params.id}${ext}`);
+      },
+    }),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const ok = /^image\//.test(file.mimetype || '');
+      cb(ok ? null : new Error('Only image files are allowed'), ok);
+    },
+  });
+  const clearUploadedWallpaper = (convId, keepFile) => {
+    for (const f of fs.readdirSync(wallpapersDir)) {
+      if (f.startsWith(convId + '.') && f !== keepFile) {
+        try { fs.unlinkSync(path.join(wallpapersDir, f)); } catch (_) {}
+      }
+    }
+  };
+
+  // GET /api/conversations/:id/wallpaper -> uploaded wallpaper image.
+  // Public (bina auth) taaki sab members ise CSS background me use kar saken.
+  router.get('/:id/wallpaper', (req, res) => {
+    const row = db.prepare('SELECT wallpaper FROM conversations WHERE id = ?').get(req.params.id);
+    const m = row && row.wallpaper ? /^upload:(\.[a-z0-9]+)$/i.exec(row.wallpaper) : null;
+    if (!m) return res.status(404).json({ error: 'No uploaded wallpaper' });
+    const file = path.join(wallpapersDir, `${req.params.id}${m[1].toLowerCase()}`);
+    if (!fs.existsSync(file)) return res.status(404).json({ error: 'Wallpaper not found' });
+    res.sendFile(file);
+  });
+
   router.use(requireAuth);
 
   const emitToConversation = (conversationId, event, payload) =>
@@ -46,6 +88,7 @@ module.exports = function conversationsRouter(io) {
       id: conv.id,
       type: conv.type,
       name: conv.name,
+      wallpaper: conv.wallpaper || null,
       members,
       lastMessage: messagePreview(lastRow),
       unreadCount,
@@ -73,6 +116,40 @@ module.exports = function conversationsRouter(io) {
   );
 
   // POST /api/conversations {type:'dm', memberId} | {type:'group', name, memberIds[]}
+  // PATCH /api/conversations/:id/wallpaper — group wallpaper badlo (sab ko dikhega).
+  // JSON {preset: "<id>"|null} ya multipart file (field: "wallpaper").
+  router.patch(
+    '/:id/wallpaper',
+    wallpaperUpload.single('wallpaper'),
+    ah(async (req, res) => {
+      const convId = req.params.id;
+      const conv = getConversation(convId);
+      if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+      if (!isMember(convId, req.user.id)) return res.status(403).json({ error: 'Not a member' });
+
+      let wallpaper = null;
+      if (req.file) {
+        const ext = path.extname(req.file.filename).toLowerCase() || '.jpg';
+        clearUploadedWallpaper(convId, req.file.filename);
+        wallpaper = `upload:${ext}`;
+      } else {
+        const { preset } = req.body || {};
+        clearUploadedWallpaper(convId, null);
+        if (preset === null || preset === undefined || preset === 'default' || preset === 'dots') {
+          wallpaper = null;
+        } else if (WALLPAPER_PRESETS.includes(preset)) {
+          wallpaper = `preset:${preset}`;
+        } else {
+          return res.status(400).json({ error: 'Invalid preset' });
+        }
+      }
+
+      db.prepare('UPDATE conversations SET wallpaper = ? WHERE id = ?').run(wallpaper, convId);
+      emitToConversation(convId, 'conversation:wallpaper', { conversationId: convId, wallpaper });
+      res.json({ wallpaper });
+    })
+  );
+
   router.post(
     '/',
     ah(async (req, res) => {
