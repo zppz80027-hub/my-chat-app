@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useChat } from '../context/ChatContext';
-import { uploadFile, findPendingUpload } from '../utils/api';
+import { uploadFileSmart, findPendingUpload } from '../utils/api';
 import { fmtSize } from '../utils/format';
 import EmojiPicker from './EmojiPicker';
 
@@ -89,7 +89,7 @@ export default function Composer({ convId, replyTo, onCancelReply, editing, onCa
       const wasPending = !!findPendingUpload(file, convId);
       setUpload({ name: file.name, size: file.size, pct: 0, resumed: wasPending });
       try {
-        const done = await uploadFile(file, convId, (p) => {
+        const done = await uploadFileSmart(file, convId, (p) => {
           setUpload((u) => (u ? { ...u, pct: Math.round(p * 100) } : u));
         }, aborter.signal);
         await sendFileMessage(convId, done, kind, null, replyTo);

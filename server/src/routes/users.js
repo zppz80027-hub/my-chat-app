@@ -4,6 +4,7 @@ const fs = require('fs');
 const { db } = require('../db');
 const { requireAuth, ah } = require('../middleware/auth');
 const { userSummary } = require('../lib/serializers');
+const r2 = require('../lib/r2');
 
 const router = express.Router();
 
@@ -43,12 +44,24 @@ router.get(
 
 // GET /api/users/:id/avatar -> the user's avatar image file (public, so it can
 // be embedded directly in <img> tags without an auth header).
-router.get('/:id/avatar', (req, res) => {
-  const user = db.prepare('SELECT avatar_path FROM users WHERE id = ?').get(req.params.id);
-  if (!user || !user.avatar_path || !fs.existsSync(user.avatar_path)) {
-    return res.status(404).json({ error: 'Avatar not found' });
-  }
-  res.sendFile(user.avatar_path);
-});
+// R2-backed avatars ('r2:<key>'): 302 redirect to presigned URL.
+router.get(
+  '/:id/avatar',
+  ah(async (req, res) => {
+    const user = db.prepare('SELECT avatar_path FROM users WHERE id = ?').get(req.params.id);
+    if (!user || !user.avatar_path) {
+      return res.status(404).json({ error: 'Avatar not found' });
+    }
+    if (user.avatar_path.startsWith('r2:')) {
+      if (!r2.enabled()) return res.status(404).json({ error: 'Avatar not available' });
+      const url = await r2.presignedGetUrl(user.avatar_path.slice(3), { expiresIn: 3600 });
+      return res.redirect(302, url);
+    }
+    if (!fs.existsSync(user.avatar_path)) {
+      return res.status(404).json({ error: 'Avatar not found' });
+    }
+    res.sendFile(user.avatar_path);
+  })
+);
 
 module.exports = router;

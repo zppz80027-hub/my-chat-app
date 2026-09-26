@@ -35,6 +35,17 @@ const config = {
   chunkSize: 4 * 1024 * 1024, // 4 MiB per upload chunk
   maxAvatarSize: 5 * 1024 * 1024, // 5 MiB
   clientUrl: process.env.CLIENT_URL || '',
+  // Cloudflare R2 object storage (files/avatars/wallpapers ko deploy ke paar
+  // bachane ke liye). Sab env vars se — yahan kuch hardcode nahi.
+  // Koi bhi missing ho to r2.enabled() false aur app local disk par chalti hai.
+  r2: {
+    accountId: process.env.R2_ACCOUNT_ID || '',
+    accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+    bucket: process.env.R2_BUCKET || '',
+    // Optional, future use: R2 bucket ka public/custom-domain URL.
+    publicUrl: (process.env.R2_PUBLIC_URL || '').replace(/\/+$/, ''),
+  },
 };
 
 module.exports = config;

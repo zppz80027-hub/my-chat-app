@@ -122,6 +122,16 @@ db.exec(SCHEMA);
   const cols = db.prepare('PRAGMA table_info(conversations)').all().map((r) => r.name);
   if (!cols.includes('wallpaper')) db.exec('ALTER TABLE conversations ADD COLUMN wallpaper TEXT');
 }
+// R2 object storage columns — purane DB ke liye migration.
+// storage: 'local' (ephemeral disk) ya 'r2' (Cloudflare R2, deploy-proof).
+// r2_key: R2 object key (jaise "files/<uploadId>-<name>"), storage='r2' par.
+{
+  const cols = db.prepare('PRAGMA table_info(uploads)').all().map((r) => r.name);
+  if (!cols.includes('storage'))
+    db.exec("ALTER TABLE uploads ADD COLUMN storage TEXT NOT NULL DEFAULT 'local'");
+  if (!cols.includes('r2_key')) db.exec('ALTER TABLE uploads ADD COLUMN r2_key TEXT');
+  if (!cols.includes('r2_upload_id')) db.exec('ALTER TABLE uploads ADD COLUMN r2_upload_id TEXT');
+}
 
 const COMMON_CHAT_ID = 'common-chat';
 db.prepare(

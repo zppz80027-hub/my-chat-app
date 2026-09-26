@@ -11,6 +11,7 @@ const { db, isMember, getConversation } = require('../db');
 const { requireAuth, ah } = require('../middleware/auth');
 const { userSummary, messagePreview, getMessages, serializeMessage } = require('../lib/serializers');
 const { createMessage, createSystemMessage, httpError } = require('../lib/messages');
+const r2 = require('../lib/r2');
 
 module.exports = function conversationsRouter(io) {
   const router = express.Router();
@@ -40,17 +41,39 @@ module.exports = function conversationsRouter(io) {
       }
     }
   };
+  // Local + R2 dono jagah se purane uploaded wallpaper hatao (best effort).
+  // keepLocal: local filename jo rakhna hai (ya null). keepR2Key: R2 key jo rakhni hai.
+  const clearUploadedWallpaperAll = async (convId, keepLocal, keepR2Key) => {
+    clearUploadedWallpaper(convId, keepLocal);
+    if (r2.enabled()) {
+      for (const ext of ['.jpg', '.jpeg', '.png', '.gif', '.webp']) {
+        const key = `wallpapers/${convId}${ext}`;
+        if (key === keepR2Key) continue;
+        try { await r2.deleteKey(key); } catch (_) {}
+      }
+    }
+  };
 
   // GET /api/conversations/:id/wallpaper -> uploaded wallpaper image.
   // Public (bina auth) taaki sab members ise CSS background me use kar saken.
-  router.get('/:id/wallpaper', (req, res) => {
-    const row = db.prepare('SELECT wallpaper FROM conversations WHERE id = ?').get(req.params.id);
-    const m = row && row.wallpaper ? /^upload:(\.[a-z0-9]+)$/i.exec(row.wallpaper) : null;
-    if (!m) return res.status(404).json({ error: 'No uploaded wallpaper' });
-    const file = path.join(wallpapersDir, `${req.params.id}${m[1].toLowerCase()}`);
-    if (!fs.existsSync(file)) return res.status(404).json({ error: 'Wallpaper not found' });
-    res.sendFile(file);
-  });
+  // R2-backed ('r2upload:<ext>'): 302 redirect to presigned URL.
+  router.get(
+    '/:id/wallpaper',
+    ah(async (req, res) => {
+      const row = db.prepare('SELECT wallpaper FROM conversations WHERE id = ?').get(req.params.id);
+      const m = row && row.wallpaper ? /^(upload|r2upload):(\.[a-z0-9]+)$/i.exec(row.wallpaper) : null;
+      if (!m) return res.status(404).json({ error: 'No uploaded wallpaper' });
+      const ext = m[2].toLowerCase();
+      if (m[1].toLowerCase() === 'r2upload') {
+        if (!r2.enabled()) return res.status(404).json({ error: 'Wallpaper not available' });
+        const url = await r2.presignedGetUrl(`wallpapers/${req.params.id}${ext}`, { expiresIn: 3600 });
+        return res.redirect(302, url);
+      }
+      const file = path.join(wallpapersDir, `${req.params.id}${ext}`);
+      if (!fs.existsSync(file)) return res.status(404).json({ error: 'Wallpaper not found' });
+      res.sendFile(file);
+    })
+  );
 
   router.use(requireAuth);
 
@@ -130,11 +153,23 @@ module.exports = function conversationsRouter(io) {
       let wallpaper = null;
       if (req.file) {
         const ext = path.extname(req.file.filename).toLowerCase() || '.jpg';
-        clearUploadedWallpaper(convId, req.file.filename);
-        wallpaper = `upload:${ext}`;
+        const key = `wallpapers/${convId}${ext}`;
+        let usedR2 = false;
+        // R2 configured ho to wallpaper R2 par rakho (deploy-proof). Fail ho to local.
+        if (r2.enabled()) {
+          try {
+            await r2.uploadFile(key, req.file.path, req.file.mimetype);
+            fs.unlinkSync(req.file.path);
+            usedR2 = true;
+          } catch (e) {
+            console.error('[wallpaper] R2 upload failed, keeping local file:', e.message);
+          }
+        }
+        await clearUploadedWallpaperAll(convId, usedR2 ? null : req.file.filename, usedR2 ? key : null);
+        wallpaper = usedR2 ? `r2upload:${ext}` : `upload:${ext}`;
       } else {
         const { preset } = req.body || {};
-        clearUploadedWallpaper(convId, null);
+        await clearUploadedWallpaperAll(convId, null, null);
         if (preset === null || preset === undefined || preset === 'default' || preset === 'dots') {
           wallpaper = null;
         } else if (WALLPAPER_PRESETS.includes(preset)) {

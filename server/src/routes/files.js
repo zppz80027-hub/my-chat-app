@@ -1,12 +1,15 @@
 // GET /api/files/:fileId -> download a completed upload.
 // Requires auth + membership in the upload's conversation. Supports HTTP
 // Range requests (206 Partial Content) for resumable downloads.
+// R2-backed files (uploads.storage='r2'): 302 redirect to a short-lived
+// presigned R2 URL (auth already checked here). Local files: purana behavior.
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { db, isMember } = require('../db');
 const { requireAuth, ah } = require('../middleware/auth');
 const config = require('../config');
+const r2 = require('../lib/r2');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -31,6 +34,21 @@ router.get(
     if (!up.conversation_id || !isMember(up.conversation_id, req.user.id)) {
       return res.status(403).json({ error: 'Not a member of this conversation' });
     }
+
+    // R2-backed file: auth check ho chuka hai, ab short-lived presigned URL par
+    // 302 redirect. <video>/<img>/<a> sab redirect follow karte hain. Range
+    // requests bhi chalti hain — har range request dobara isi endpoint par
+    // aati hai aur use naya presigned URL milta hai.
+    if (up.storage === 'r2' && up.r2_key && r2.enabled()) {
+      const isMedia = /^(video|audio|image)\//.test(up.mime_type || '');
+      const filename = up.filename.replace(/"/g, '');
+      const disp =
+        `${isMedia ? 'inline' : 'attachment'}; filename="${filename}"; ` +
+        `filename*=UTF-8''${encodeURIComponent(up.filename)}`;
+      const url = await r2.presignedGetUrl(up.r2_key, { expiresIn: 3600, contentDisposition: disp });
+      return res.redirect(302, url);
+    }
+
     const filePath = filePathFor(up.id, up.filename);
     if (!filePath || !fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File data missing on server' });

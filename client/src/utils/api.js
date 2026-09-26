@@ -161,6 +161,10 @@ async function acquireWakeLock() {
 /** Raw chunk upload used by the chunked uploader (octet-stream body). */
 export async function uploadChunk(uploadId, index, blob, signal) {
   const token = getToken();
+  // Per-request timeout: mobile net kabhi-kabhi hang ho jata hai aur fetch
+  // bina timeout ke hamesha atka rehta hai (15% par rukne wali dikkat).
+  const timeout = AbortSignal.timeout(120000);
+  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   const res = await fetch(
     `${API_BASE}/api/uploads/chunk?uploadId=${encodeURIComponent(uploadId)}&index=${index}`,
     {
@@ -170,7 +174,7 @@ export async function uploadChunk(uploadId, index, blob, signal) {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: blob,
-      signal,
+      signal: combined,
     }
   );
   if (!res.ok) {
@@ -298,5 +302,161 @@ export async function uploadFile(file, conversationId, onProgress, externalSigna
       await wakeLock?.release();
     } catch {}
     wakeLock = null;
+  }
+}
+
+// ---- DIRECT-TO-R2 FAST UPLOAD ----
+// Phone seedha Cloudflare ke edge (Mumbai) par file bhejta hai — slow US
+// server beech me nahi aata, isliye kayi guna tez. Server sirf presigned
+// URLs deta hai. Kuch bhi fail ho to purana relay uploadFile() par gir jao.
+
+const R2_DIRECT_CONCURRENCY = 4;
+const R2_PART_MAX_RETRIES = 3;
+const R2_PART_URL_BATCH = 50;
+
+/** Ek part R2 par PUT karo (retry + timeout ke saath). Returns the ETag. */
+async function putPartWithRetry(url, blob, signal) {
+  for (let attempt = 1; attempt <= R2_PART_MAX_RETRIES; attempt++) {
+    try {
+      const timeout = AbortSignal.timeout(180000);
+      const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+      const res = await fetch(url, { method: 'PUT', body: blob, signal: combined });
+      if (!res.ok) throw new Error(`Part upload failed (${res.status})`);
+      const etag = res.headers.get('etag');
+      if (!etag) throw new Error('Part upload missing ETag');
+      return etag;
+    } catch (err) {
+      if (signal && signal.aborted) throw err;
+      if (attempt === R2_PART_MAX_RETRIES) throw err;
+      await new Promise((r) => setTimeout(r, 800 * attempt));
+    }
+  }
+}
+
+/**
+ * File seedha R2 par upload karo. Returns {fileId, url, filename, mimeType,
+ * size} — bilkul uploadFile() jaisa shape, taaki Composer ko farak na pade.
+ * R2 na ho / kuch fail ho to throw — caller relay par gir jata hai.
+ */
+export async function uploadFileDirectToR2(file, conversationId, onProgress, externalSignal) {
+  const init = await api.post('/api/uploads/r2-init', {
+    filename: file.name,
+    mimeType: file.type || 'application/octet-stream',
+    size: file.size,
+    conversationId,
+  });
+  const { fileId, key, uploadId, partSize } = init || {};
+  if (!fileId || !key || !uploadId || !partSize) {
+    throw new Error('Direct upload init failed');
+  }
+
+  // Upload ke dauran screen on rakho (relay jaisa hi).
+  let wakeLock = await acquireWakeLock();
+  const reLock = async () => {
+    if (document.visibilityState === 'visible' && !wakeLock) {
+      wakeLock = await acquireWakeLock();
+    }
+  };
+  document.addEventListener('visibilitychange', reLock);
+
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener('abort', onAbort, { once: true });
+  }
+
+  const abortMultipart = async () => {
+    try {
+      await api.post('/api/uploads/r2-abort', { fileId });
+    } catch {
+      /* best-effort */
+    }
+  };
+
+  try {
+    const total = Math.max(1, Math.ceil(file.size / partSize));
+
+    // Saare parts ke presigned URLs pehle le lo (batch me) — har part par
+    // round-trip nahi. URLs 1h valid hain.
+    const partUrls = new Array(total);
+    for (let i = 0; i < total; i += R2_PART_URL_BATCH) {
+      const batch = [];
+      for (let n = i + 1; n <= Math.min(i + R2_PART_URL_BATCH, total); n++) batch.push(n);
+      const r = await api.post(
+        '/api/uploads/r2-part-urls',
+        { fileId, parts: batch },
+        { signal: controller.signal }
+      );
+      for (const u of r.urls || []) partUrls[u.partNumber - 1] = u.url;
+    }
+    if (partUrls.some((u) => !u)) throw new Error('Part URLs missing');
+
+    let nextPart = 1;
+    let completed = 0;
+    let failed = null;
+    const etags = new Array(total);
+    onProgress && onProgress(0);
+
+    const worker = async () => {
+      for (;;) {
+        if (failed || controller.signal.aborted) return;
+        const n = nextPart++;
+        if (n > total) return;
+        const blob = file.slice((n - 1) * partSize, n * partSize);
+        try {
+          const etag = await putPartWithRetry(partUrls[n - 1], blob, controller.signal);
+          etags[n - 1] = { partNumber: n, etag };
+        } catch (err) {
+          failed = err;
+          controller.abort();
+          return;
+        }
+        completed += 1;
+        onProgress && onProgress(completed / total);
+      }
+    };
+
+    const workers = Math.min(R2_DIRECT_CONCURRENCY, total);
+    await Promise.all(Array.from({ length: workers }, () => worker()));
+    if (failed) throw failed;
+    if (controller.signal.aborted) {
+      const e = new Error('Upload cancelled');
+      e.name = 'AbortError';
+      throw e;
+    }
+
+    const done = await api.post(
+      '/api/uploads/r2-complete',
+      { fileId, parts: etags },
+      { signal: controller.signal }
+    );
+    if (!done || !done.fileId) throw new Error('Direct upload complete failed');
+    return done;
+  } catch (err) {
+    // Cancel nahi hai to adhoora multipart R2 par saaf karo.
+    if (err.name !== 'AbortError') await abortMultipart();
+    throw err;
+  } finally {
+    if (externalSignal) externalSignal.removeEventListener('abort', onAbort);
+    document.removeEventListener('visibilitychange', reLock);
+    try {
+      await wakeLock?.release();
+    } catch {}
+    wakeLock = null;
+  }
+}
+
+/**
+ * Smart upload: pehle direct-to-R2 (tez), kuch bhi fail ho to purane relay
+ * uploadFile() par automatically gir jao. Cancel (AbortError) par fallback
+ * nahi — user ne khud roka hai.
+ */
+export async function uploadFileSmart(file, conversationId, onProgress, externalSignal) {
+  try {
+    return await uploadFileDirectToR2(file, conversationId, onProgress, externalSignal);
+  } catch (err) {
+    if (err.name === 'AbortError' || (externalSignal && externalSignal.aborted)) throw err;
+    return uploadFile(file, conversationId, onProgress, externalSignal);
   }
 }

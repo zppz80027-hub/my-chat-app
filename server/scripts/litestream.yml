@@ -1,0 +1,20 @@
+# Litestream config — SQLite DB (server/data/chat.db) ko Cloudflare R2 par
+# continuously replicate karta hai, taaki Render redeploy par DB na ude.
+#
+# Secrets env vars se aate hain — litestream config me $VAR interpolation
+# default ON hai. Is file me KOI secret nahi hai, ise commit karna safe hai.
+# Required env vars (Render dashboard me set karo):
+#   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
+#
+# Replica layout in bucket:  s3://<bucket>/litestream/chat.db
+#   (files/avatars/wallpapers isi bucket me alag prefix par rehte hain —
+#   takrav nahi hota.)
+dbs:
+  - path: server/data/chat.db
+    replica:
+      url: s3://${R2_BUCKET}/litestream/chat.db?endpoint=https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
+      access-key-id: ${R2_ACCESS_KEY_ID}
+      secret-access-key: ${R2_SECRET_ACCESS_KEY}
+      # Har 10s me sync check — R2 free tier (1M Class A ops/month) me rehne ke liye.
+      # Sirf badli hui WAL frames hi upload hoti hain.
+      sync-interval: 10s
