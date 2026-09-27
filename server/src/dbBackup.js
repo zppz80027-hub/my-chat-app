@@ -106,7 +106,13 @@ function countDb(dbPath) {
  */
 function shouldSkipBackup(localCounts, remoteStatus, remoteCounts) {
   if (!localCounts || localCounts.messages === 0) return true;
-  if (remoteStatus === 'error') return true;
+  // Remote download fail ho to bhi upload karo (local me data hai to).
+  // Pehle 'error' par skip hota tha — isse backup kabhi nahi hota tha aur
+  // restart par data udd jata tha. Local me messages hain to wo real data hai.
+  if (remoteStatus === 'error') {
+    log('Remote download fail, phir bhi backup kar raha hun (local me data hai)');
+    return false;
+  }
   if (remoteStatus === 'not_found' || !remoteCounts) return false;
   return remoteCounts.messages > localCounts.messages;
 }
