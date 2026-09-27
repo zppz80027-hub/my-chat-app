@@ -12,14 +12,30 @@ function ResilientVideo({ src, filename, size }) {
     if (e) e.stopPropagation();
     try { vidRef.current && vidRef.current.pause(); } catch {}
     setFull(true);
-    try {
-      if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape').catch(() => {});
-      }
-    } catch {}
+    // Overlay render hone ke baad browser fullscreen + landscape lock
+    setTimeout(() => {
+      try {
+        const el = document.getElementById('cloude-fs-overlay');
+        if (el && el.requestFullscreen) {
+          const p = el.requestFullscreen({ navigationUI: 'hide' });
+          if (p && p.catch) p.catch(() => {});
+        }
+      } catch {}
+      try {
+        if (screen.orientation && screen.orientation.lock) {
+          screen.orientation.lock('landscape').catch(() => {});
+        }
+      } catch {}
+    }, 120);
   };
   const closeFull = () => {
     setFull(false);
+    try {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        const p = document.exitFullscreen();
+        if (p && p.catch) p.catch(() => {});
+      }
+    } catch {}
     try {
       if (screen.orientation && screen.orientation.unlock) {
         screen.orientation.unlock();
@@ -65,7 +81,7 @@ function ResilientVideo({ src, filename, size }) {
         </button>
       </div>
       {full && (
-        <div className="fixed inset-0 z-[100] bg-black">
+        <div id="cloude-fs-overlay" className="fixed inset-0 z-[100] bg-black">
           <video
             src={src}
             controls
