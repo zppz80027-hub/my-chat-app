@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS messages (
   id                   TEXT PRIMARY KEY,
   conversation_id      TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   sender_id            TEXT REFERENCES users(id) ON DELETE SET NULL,
-  kind                 TEXT NOT NULL CHECK (kind IN ('text', 'image', 'file', 'system')),
+  kind                 TEXT NOT NULL CHECK (kind IN ('text', 'image', 'video', 'file', 'system')),
   text                 TEXT,
   reply_to             TEXT REFERENCES messages(id) ON DELETE SET NULL,
   file_id              TEXT REFERENCES uploads(id) ON DELETE SET NULL,
@@ -113,6 +113,41 @@ CREATE INDEX IF NOT EXISTS idx_reads_user ON message_reads (user_id);
 `;
 
 db.exec(SCHEMA);
+
+// 'video' kind migration — purane DB me messages.kind ke CHECK constraint me
+// 'video' nahi tha, isliye movie upload par "CHECK constraint failed: kind"
+// error aata tha. Nayi DB me SCHEMA se theek banta hai; purani DB (ya
+// Cloudinary backup se wapas aayi DB) ko yahin rebuild kar dete hain.
+{
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'").get();
+  if (row && !row.sql.includes("'video'")) {
+    console.log('[db] messages table me video kind add kar rahe hain (rebuild)...');
+    db.exec('PRAGMA foreign_keys=OFF');
+    try {
+      db.exec(`
+        CREATE TABLE messages_new (
+          id                   TEXT PRIMARY KEY,
+          conversation_id      TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+          sender_id            TEXT REFERENCES users(id) ON DELETE SET NULL,
+          kind                 TEXT NOT NULL CHECK (kind IN ('text', 'image', 'video', 'file', 'system')),
+          text                 TEXT,
+          reply_to             TEXT REFERENCES messages(id) ON DELETE SET NULL,
+          file_id              TEXT REFERENCES uploads(id) ON DELETE SET NULL,
+          created_at           INTEGER NOT NULL,
+          edited_at            INTEGER,
+          deleted_for_everyone INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT INTO messages_new SELECT * FROM messages;
+        DROP TABLE messages;
+        ALTER TABLE messages_new RENAME TO messages;
+        CREATE INDEX idx_messages_conv_created ON messages (conversation_id, created_at, id);
+      `);
+      console.log('[db] messages table migrate ho gayi.');
+    } finally {
+      db.exec('PRAGMA foreign_keys=ON');
+    }
+  }
+}
 
 // --- Common "chat" group: sab log ek hi chat me --------------------------------
 // Ek hi group hota hai jisme sab members hain. Chat pe tap karte hi sab usi me

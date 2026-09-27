@@ -52,7 +52,7 @@ async function boot() {
 
   // ---- health ------------------------------------------------------------------
   app.get('/api/health', (_req, res) =>
-    res.json({ ok: true, time: new Date().toISOString(), version: '2026-09-27-movie-archive-1' })
+    res.json({ ok: true, time: new Date().toISOString(), version: '2026-09-27-video-kind-fix-1' })
   );
 
   // ---- API routes (all before the SPA fallback and the /api 404 handler) --------
@@ -97,6 +97,14 @@ async function boot() {
     require('./src/movieArchive').restoreAllMoviesInBackground();
   } catch (e) {
     console.log('[movie-archive] boot restore start fail:', e.message);
+  }
+
+  // 5. Orphaned movies — complete upload jinka message nahi bana, unka
+  // message banao taaki movie chat me dikhe.
+  try {
+    require('./src/movieArchive').recoverOrphanedMovieMessages();
+  } catch (e) {
+    console.log('[movie-archive] orphan recovery fail:', e.message);
   }
 
   server.listen(config.port, () => {
