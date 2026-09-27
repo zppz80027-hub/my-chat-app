@@ -6,6 +6,13 @@ import { fmtSize, fmtTime } from '../utils/format';
 function ResilientVideo({ src, filename, size }) {
   const [failed, setFailed] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
+  const [full, setFull] = useState(false);
+  const vidRef = useRef(null);
+  const openFull = (e) => {
+    if (e) e.stopPropagation();
+    try { vidRef.current && vidRef.current.pause(); } catch {}
+    setFull(true);
+  };
   if (failed) {
     return (
       <div className="rounded-lg bg-black/40 p-3 text-center text-xs text-gray-300">
@@ -24,15 +31,57 @@ function ResilientVideo({ src, filename, size }) {
     );
   }
   return (
-    <video
-      key={retryKey}
-      src={src}
-      controls
-      playsInline
-      preload="metadata"
-      className="max-h-64 w-full bg-black"
-      onError={() => setFailed(true)}
-    />
+    <>
+      <div className="relative">
+        <video
+          key={retryKey}
+          ref={vidRef}
+          src={src}
+          controls
+          playsInline
+          preload="metadata"
+          className="max-h-64 w-full bg-black"
+          onError={() => setFailed(true)}
+        />
+        <button
+          onClick={openFull}
+          title="Poori screen par dekho"
+          className="absolute right-2 top-2 rounded-full bg-black/60 px-2.5 py-1 text-base text-white"
+        >
+          ⛶
+        </button>
+      </div>
+      {full && (
+        <div
+          className="fixed inset-0 z-[100] flex flex-col bg-black"
+          onClick={() => setFull(false)}
+        >
+          <div className="flex items-center justify-between gap-2 p-3">
+            <span className="truncate text-sm text-gray-300">{filename || 'Movie'}</span>
+            <button
+              onClick={() => setFull(false)}
+              className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-lg text-white"
+            >
+              ✕
+            </button>
+          </div>
+          <video
+            src={src}
+            controls
+            autoPlay
+            playsInline
+            preload="auto"
+            className="w-full flex-1 bg-black"
+            style={{ maxHeight: 'calc(100% - 60px)' }}
+            onClick={(e) => e.stopPropagation()}
+            onError={() => { setFull(false); setFailed(true); }}
+          />
+          <div className="p-2 text-center text-xs text-gray-500">
+            Band karne ke liye ✕ dabao ya kahin tap karo
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
