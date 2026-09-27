@@ -52,32 +52,24 @@ function ResilientVideo({ src, filename, size }) {
         </button>
       </div>
       {full && (
-        <div
-          className="fixed inset-0 z-[100] flex flex-col bg-black"
-          onClick={() => setFull(false)}
-        >
-          <div className="flex items-center justify-between gap-2 p-3">
-            <span className="truncate text-sm text-gray-300">{filename || 'Movie'}</span>
-            <button
-              onClick={() => setFull(false)}
-              className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-lg text-white"
-            >
-              ✕
-            </button>
-          </div>
+        <div className="fixed inset-0 z-[100] bg-black">
           <video
             src={src}
             controls
             autoPlay
             playsInline
             preload="auto"
-            className="w-full flex-1 bg-black"
-            style={{ maxHeight: 'calc(100% - 60px)' }}
-            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-0 h-full w-full object-contain"
             onError={() => { setFull(false); setFailed(true); }}
           />
-          <div className="p-2 text-center text-xs text-gray-500">
-            Band karne ke liye ✕ dabao ya kahin tap karo
+          <div className="absolute left-0 right-0 top-0 flex items-center justify-between gap-2 bg-gradient-to-b from-black/80 to-transparent p-3 pb-6">
+            <span className="truncate text-sm text-white">{filename || 'Movie'}</span>
+            <button
+              onClick={() => setFull(false)}
+              className="shrink-0 rounded-full bg-white/20 px-3.5 py-1.5 text-xl text-white"
+            >
+              ✕
+            </button>
           </div>
         </div>
       )}
