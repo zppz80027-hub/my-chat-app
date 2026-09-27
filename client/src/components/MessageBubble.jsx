@@ -75,11 +75,12 @@ function ResilientVideo({ src, filename, size }) {
             className="absolute inset-0 h-full w-full object-contain"
             onError={() => { closeFull(); setFailed(true); }}
           />
-          <div className="absolute left-0 right-0 top-0 flex items-center justify-between gap-2 bg-gradient-to-b from-black/80 to-transparent p-3 pb-6">
+          <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-2 bg-gradient-to-b from-black/80 to-transparent p-3 pb-6">
             <span className="truncate text-sm text-white">{filename || 'Movie'}</span>
             <button
               onClick={closeFull}
-              className="shrink-0 rounded-full bg-white/20 px-3.5 py-1.5 text-xl text-white"
+              onTouchEnd={(e) => { e.stopPropagation(); closeFull(); }}
+              className="shrink-0 rounded-full bg-white/30 px-4 py-2 text-2xl text-white"
             >
               ✕
             </button>
