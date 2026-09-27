@@ -287,11 +287,62 @@ function triggerMovieRestore(fileId) {
   }
 }
 
+
+/**
+ * Orphaned movie recovery — aisi complete movie uploads jinka chat me koi
+ * message nahi bana (jaise CHECK constraint bug me message insert fail hua
+ * tha), unka message banao taaki movie chat me dikhe. Sirf wahi movies
+ * jinka Cloudinary archive 'complete' hai (file wapas mil sakti hai).
+ * Idempotent hai — pehle se message wali uploads ko chhoota nahi.
+ */
+function recoverOrphanedMovieMessages() {
+  try {
+    const db = getDb();
+    const { createMessage } = require('./lib/messages');
+    const rows = db.prepare(`
+      SELECT u.* FROM uploads u
+      JOIN movie_archives ma ON ma.file_id = u.id AND ma.status = 'complete'
+      WHERE u.status = 'complete'
+        AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.file_id = u.id)
+    `).all();
+    for (const up of rows) {
+      try {
+        const mt = String(up.mime_type || '');
+        const kind = mt.startsWith('video/') ? 'video' : mt.startsWith('image/') ? 'image' : 'file';
+        // Uploader common-chat ka member hai ya nahi — nahi hai to jod do.
+        const mem = db.prepare(
+          'SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?'
+        ).get(up.conversation_id, up.uploader_id);
+        if (!mem) {
+          db.prepare(
+            'INSERT OR IGNORE INTO conversation_members (conversation_id, user_id, joined_at) VALUES (?, ?, ?)'
+          ).run(up.conversation_id, up.uploader_id, Date.now());
+        }
+        createMessage({
+          conversationId: up.conversation_id,
+          senderId: up.uploader_id,
+          kind,
+          text: null,
+          replyTo: null,
+          fileId: up.id,
+        });
+        log(`[recovery] movie message banaya: ${up.filename} (${up.id})`);
+      } catch (e) {
+        log(`[recovery] fail [${up.id}]:`, e.message);
+      }
+    }
+    if (rows.length === 0) log('[recovery] koi orphaned movie nahi mili.');
+  } catch (e) {
+    log('[recovery] start fail:', e.message);
+  }
+}
+
 module.exports = {
   archiveMovieInBackground,
   ensureMovieLocal,
   triggerMovieRestore,
   restoreAllMoviesInBackground,
+  recoverOrphanedMovieMessages,
   ARCHIVE_MIN_SIZE,
   PART_SIZE,
 };
