@@ -193,14 +193,28 @@ router.post(
     // Concatenate chunks in order into the final file.
     const destName = `${uploadId}-${safeFilename(up.filename)}`;
     const destPath = path.join(filesRoot, destName);
+    // Chunks ko ek-ek karke STREAM karo — poori file kabhi memory me mat lao.
+    // (Pehle out.write() loop backpressure ignore karta tha: 1GB+ buffer ban
+    //  ke Render free tier (512MB RAM) ka Node process OOM crash ho jata tha.
+    //  Restart par ephemeral DB wipe -> "Upload not found" (404).)
     const out = fs.createWriteStream(destPath);
-    for (let i = 0; i < expectedChunks; i++) {
-      const data = fs.readFileSync(path.join(tmpDirFor(uploadId), `${i}.chunk`));
-      out.write(data);
-    }
-    await new Promise((resolve, reject) => {
-      out.end((err) => (err ? reject(err) : resolve()));
+    const outDone = new Promise((resolve, reject) => {
+      out.on('finish', resolve);
+      out.on('error', reject);
     });
+    try {
+      for (let i = 0; i < expectedChunks; i++) {
+        const inp = fs.createReadStream(path.join(tmpDirFor(uploadId), `${i}.chunk`));
+        for await (const buf of inp) {
+          if (!out.write(buf)) {
+            await new Promise((r) => out.once('drain', r));
+          }
+        }
+      }
+    } finally {
+      out.end();
+    }
+    await outDone;
 
     // R2 configured ho to assembled file ko R2 par stream karo aur local copy
     // hata do (deploy-proof). Fail ho to local fallback — upload kabhi na toote.
