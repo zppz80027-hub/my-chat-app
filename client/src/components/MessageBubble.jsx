@@ -12,6 +12,19 @@ function ResilientVideo({ src, filename, size }) {
     if (e) e.stopPropagation();
     try { vidRef.current && vidRef.current.pause(); } catch {}
     setFull(true);
+    try {
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(() => {});
+      }
+    } catch {}
+  };
+  const closeFull = () => {
+    setFull(false);
+    try {
+      if (screen.orientation && screen.orientation.unlock) {
+        screen.orientation.unlock();
+      }
+    } catch {}
   };
   if (failed) {
     return (
@@ -60,12 +73,12 @@ function ResilientVideo({ src, filename, size }) {
             playsInline
             preload="auto"
             className="absolute inset-0 h-full w-full object-contain"
-            onError={() => { setFull(false); setFailed(true); }}
+            onError={() => { closeFull(); setFailed(true); }}
           />
           <div className="absolute left-0 right-0 top-0 flex items-center justify-between gap-2 bg-gradient-to-b from-black/80 to-transparent p-3 pb-6">
             <span className="truncate text-sm text-white">{filename || 'Movie'}</span>
             <button
-              onClick={() => setFull(false)}
+              onClick={closeFull}
               className="shrink-0 rounded-full bg-white/20 px-3.5 py-1.5 text-xl text-white"
             >
               ✕
