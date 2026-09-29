@@ -279,21 +279,35 @@ async function ensureMovieLocal(fileId) {
   }
 }
 
-/** HEAD se ek part ka size — migration ke liye. */
+/** HEAD se ek part ka size — migration ke liye (HEAD na chale to Range-GET). */
 function headPartSize(fileId, index) {
+  const url = partDeliveryUrl(fileId, index);
   return new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    const tryRangeGet = () => {
+      try {
+        const req = https.request(url, { method: 'GET', headers: { Range: 'bytes=0-0' }, timeout: 20000 }, (res) => {
+          const m = /^bytes 0-0\/(\d+)$/.exec(String(res.headers['content-range'] || ''));
+          done(res.statusCode === 206 && m ? Number(m[1]) : -1);
+          res.resume();
+        });
+        req.on('error', () => done(-1));
+        req.on('timeout', () => { req.destroy(); done(-1); });
+        req.end();
+      } catch { done(-1); }
+    };
     try {
-      const req = https.request(partDeliveryUrl(fileId, index), { method: 'HEAD', timeout: 20000 }, (res) => {
+      const req = https.request(url, { method: 'HEAD', timeout: 20000 }, (res) => {
         const len = Number(res.headers['content-length']);
-        resolve(res.statusCode === 200 && Number.isFinite(len) ? len : -1);
         res.resume();
+        if (res.statusCode === 200 && Number.isFinite(len)) done(len);
+        else tryRangeGet();
       });
-      req.on('error', () => resolve(-1));
-      req.on('timeout', () => { req.destroy(); resolve(-1); });
+      req.on('error', tryRangeGet);
+      req.on('timeout', () => { req.destroy(); tryRangeGet(); });
       req.end();
-    } catch {
-      resolve(-1);
-    }
+    } catch { tryRangeGet(); }
   });
 }
 
