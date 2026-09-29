@@ -113,7 +113,10 @@ function downloadPart(publicId, destPath) {
   return new Promise((resolve) => {
     const giveUp = () => { try { fs.unlinkSync(destPath); } catch {} resolve(false); };
     try {
-      const url = `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/${publicId}.bin`;
+      // publicId "cloude/movie-parts/<fileId>/part-<i>" form me aata hai.
+      const m = /^cloude\/movie-parts\/([^/]+)\/part-(\d+)$/.exec(publicId);
+      const url = m ? partDeliveryUrl(m[1], Number(m[2]))
+                    : `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/${publicId}.bin`;
       const file = fs.createWriteStream(destPath);
       const req = https.get(url, { timeout: 300000 }, (res) => {
         if (res.statusCode !== 200) return giveUp();
@@ -128,6 +131,39 @@ function downloadPart(publicId, destPath) {
 
 function partPublicId(fileId, index) {
   return `${PARTS_PREFIX}/${fileId}/part-${index}`;
+}
+
+/** Browser seedha is URL se tukda stream kar sakta hai (CORS + Range OK). */
+function partDeliveryUrl(fileId, index) {
+  return `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/${partPublicId(fileId, index)}.bin`;
+}
+
+/**
+ * Direct-stream manifest — Service Worker isi se movie chalata hai bina
+ * Render ki bandwidth kharch kiye. Sirf 'cloudinary-parts' uploads ke liye.
+ */
+function movieManifest(fileId) {
+  try {
+    const db = getDb();
+    const up = db.prepare('SELECT * FROM uploads WHERE id = ?').get(fileId);
+    if (!up || up.status !== 'complete' || up.storage !== 'cloudinary-parts') return null;
+    const arch = db.prepare('SELECT * FROM movie_archives WHERE file_id = ?').get(fileId);
+    if (!arch || arch.status !== 'complete') return null;
+    const urls = [];
+    for (let i = 0; i < arch.parts; i++) urls.push(partDeliveryUrl(fileId, i));
+    return {
+      storage: 'cloudinary-parts',
+      fileId,
+      filename: up.filename,
+      mimeType: up.mime_type,
+      totalSize: arch.total_size,
+      partSize: arch.part_size,
+      parts: arch.parts,
+      urls,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -243,12 +279,75 @@ async function ensureMovieLocal(fileId) {
   }
 }
 
-/** Boot par: sab complete archives ki gum local files background me wapas jodo. */
+/** HEAD se ek part ka size — migration ke liye. */
+function headPartSize(fileId, index) {
+  return new Promise((resolve) => {
+    try {
+      const req = https.request(partDeliveryUrl(fileId, index), { method: 'HEAD', timeout: 20000 }, (res) => {
+        const len = Number(res.headers['content-length']);
+        resolve(res.statusCode === 200 && Number.isFinite(len) ? len : -1);
+        res.resume();
+      });
+      req.on('error', () => resolve(-1));
+      req.on('timeout', () => { req.destroy(); resolve(-1); });
+      req.end();
+    } catch {
+      resolve(-1);
+    }
+  });
+}
+
+/**
+ * Purani 'local' movies jinke tukde Cloudinary par POORE hain, unhe
+ * 'cloudinary-parts' mode me badlo — taaki wo bhi Render ki bandwidth kharch
+ * kiye bina seedha Cloudinary se stream hon. Local copy hata di jati hai.
+ * Idempotent hai; parts adhoore hon to chhoota nahi.
+ */
+async function migrateArchivesToDirect() {
+  try {
+    const db = getDb();
+    const rows = db.prepare(
+      `SELECT ma.* FROM movie_archives ma
+       JOIN uploads u ON u.id = ma.file_id
+       WHERE ma.status = 'complete' AND COALESCE(u.storage, 'local') = 'local'`
+    ).all();
+    for (const arch of rows) {
+      let ok = true;
+      for (let i = 0; i < arch.parts; i++) {
+        const expected = i === arch.parts - 1 ? arch.total_size - i * arch.part_size : arch.part_size;
+        const got = await headPartSize(arch.file_id, i);
+        if (got !== expected) { ok = false; break; }
+      }
+      if (!ok) {
+        log(`migrate skip [${arch.file_id}]: Cloudinary parts adhoore hain`);
+        continue;
+      }
+      db.prepare(`UPDATE uploads SET storage = 'cloudinary-parts' WHERE id = ?`).run(arch.file_id);
+      try {
+        const up = db.prepare('SELECT * FROM uploads WHERE id = ?').get(arch.file_id);
+        const p = up && localPathFor(up.id, up.filename);
+        if (p && fs.existsSync(p)) fs.unlinkSync(p);
+      } catch {}
+      log(`migrate OK [${arch.file_id}]: ab direct Cloudinary streaming (Render bandwidth 0)`);
+    }
+    if (rows.length === 0) log('migrate: koi purani local movie nahi mili.');
+  } catch (e) {
+    log('migrate fail:', e.message);
+  }
+}
+
+/** Boot par: sab complete archives ki gum local files background me wapas jodo.
+ *  'cloudinary-parts' wali movies skip — unhe local jodne ki zaroorat hi nahi,
+ *  browser seedha Cloudinary se stream karta hai (Render bandwidth = 0). */
 function restoreAllMoviesInBackground() {
   setTimeout(async () => {
     try {
       const db = getDb();
-      const rows = db.prepare(`SELECT file_id FROM movie_archives WHERE status = 'complete'`).all();
+      const rows = db.prepare(
+        `SELECT ma.file_id FROM movie_archives ma
+         JOIN uploads u ON u.id = ma.file_id
+         WHERE ma.status = 'complete' AND COALESCE(u.storage, 'local') != 'cloudinary-parts'`
+      ).all();
       for (const r of rows) {
         try {
           const st = await ensureMovieLocal(r.file_id);
@@ -271,6 +370,9 @@ function restoreAllMoviesInBackground() {
 function triggerMovieRestore(fileId) {
   try {
     const db = getDb();
+    const up0 = db.prepare('SELECT storage FROM uploads WHERE id = ?').get(fileId);
+    // Direct-stream movie: local jodne ka sawal hi nahi — hamesha ready.
+    if (up0 && up0.storage === 'cloudinary-parts') return 'ready';
     const arch = db.prepare('SELECT * FROM movie_archives WHERE file_id = ?').get(fileId);
     if (!arch) return 'no-archive';
     if (arch.status === 'archiving') return 'archiving';
@@ -343,6 +445,9 @@ module.exports = {
   triggerMovieRestore,
   restoreAllMoviesInBackground,
   recoverOrphanedMovieMessages,
+  migrateArchivesToDirect,
+  movieManifest,
+  partDeliveryUrl,
   ARCHIVE_MIN_SIZE,
   PART_SIZE,
 };

@@ -11,11 +11,20 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const https = require('https');
 const { v4: uuidv4 } = require('uuid');
 const { db, isMember } = require('../db');
 const { requireAuth, ah } = require('../middleware/auth');
 const config = require('../config');
 const r2 = require('../lib/r2');
+
+// Badi movie direct-upload ke liye Cloudinary settings (movieArchive.js jaisi).
+// api_secret kabhi client ko nahi jata — sirf signature banta hai.
+const MOVIE_CLOUD_NAME = 'tzfbjslf';
+const MOVIE_API_KEY = '659554747298259';
+const MOVIE_PART_SIZE = 80 * 1024 * 1024; // 80MB — Cloudinary free limit se safe
+const MOVIE_DIRECT_MIN = 80 * 1024 * 1024; // isse badi video seedha Cloudinary jayegi
 
 const router = express.Router();
 router.use(requireAuth);
@@ -483,6 +492,162 @@ router.post(
       db.prepare('DELETE FROM uploads WHERE id = ?').run(fileId);
     }
     res.json({ ok: true });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// MOVIE DIRECT-TO-CLOUDINARY (phone -> Cloudinary, Render server bypass).
+//
+// Wajah: Render free tier ki outbound bandwidth sirf 5GB/month hai. 1GB+ ki
+// movie har baar Render se hokar jayegi to limit khatam aur service suspend.
+// Isliye badi movie (>80MB) ke tukde (80MB parts) phone SEEDHA Cloudinary par
+// bhejta hai — server sirf sign karta hai (secret kabhi client ko nahi jata).
+// Playback bhi Cloudinary se seedha hota hai (Service Worker range-proxy) —
+// Render ka ek byte bhi kharch nahi hota.
+//
+//   POST /api/uploads/movie-init     {filename, mimeType, size, conversationId}
+//   POST /api/uploads/movie-complete {fileId}
+// ---------------------------------------------------------------------------
+
+function moviePartPublicId(fileId, index) {
+  return `cloude/movie-parts/${fileId}/part-${index}`;
+}
+
+/** Signed upload params (movieArchive.js wala algorithm). */
+function signMoviePart(publicId) {
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  if (!apiSecret) return null;
+  const timestamp = Math.floor(Date.now() / 1000);
+  const params = { overwrite: 'true', public_id: publicId, timestamp: String(timestamp) };
+  const sorted = Object.keys(params).sort().map((k) => `${k}=${params[k]}`).join('&');
+  const signature = crypto.createHash('sha1').update(sorted + apiSecret).digest('hex');
+  return { publicId, timestamp: String(timestamp), signature };
+}
+
+/** Cloudinary delivery URL par HEAD — part maujood hai ya nahi + uska size. */
+function headPartSize(publicId) {
+  return new Promise((resolve) => {
+    try {
+      const url = `https://res.cloudinary.com/${MOVIE_CLOUD_NAME}/raw/upload/${publicId}.bin`;
+      const req = https.request(url, { method: 'HEAD', timeout: 20000 }, (res) => {
+        const len = Number(res.headers['content-length']);
+        resolve(res.statusCode === 200 && Number.isFinite(len) ? len : -1);
+        res.resume();
+      });
+      req.on('error', () => resolve(-1));
+      req.on('timeout', () => { req.destroy(); resolve(-1); });
+      req.end();
+    } catch {
+      resolve(-1);
+    }
+  });
+}
+
+// POST /api/uploads/movie-init {filename, mimeType, size, conversationId}
+router.post(
+  '/movie-init',
+  ah(async (req, res) => {
+    const { filename, mimeType, size, conversationId } = req.body || {};
+    if (typeof filename !== 'string' || !filename.trim()) {
+      return res.status(400).json({ error: 'filename is required' });
+    }
+    const totalSize = Number(size);
+    if (!Number.isInteger(totalSize) || totalSize <= 0) {
+      return res.status(400).json({ error: 'size must be a positive integer (bytes)' });
+    }
+    if (totalSize < MOVIE_DIRECT_MIN) {
+      return res.status(400).json({ error: 'File too small for direct movie upload' });
+    }
+    if (totalSize > config.maxFileSize) {
+      return res.status(413).json({ error: `File too large (max ${config.maxFileSize} bytes)` });
+    }
+    if (typeof conversationId !== 'string' || !isMember(conversationId, req.user.id)) {
+      return res.status(403).json({ error: 'Not a member of this conversation' });
+    }
+    if (!process.env.CLOUDINARY_API_SECRET) {
+      return res.status(503).json({ error: 'Movie direct upload not configured' });
+    }
+
+    const fileId = uuidv4();
+    const parts = Math.ceil(totalSize / MOVIE_PART_SIZE);
+    const signatures = [];
+    for (let i = 0; i < parts; i++) {
+      const s = signMoviePart(moviePartPublicId(fileId, i));
+      if (!s) return res.status(503).json({ error: 'Could not sign upload' });
+      signatures.push(s);
+    }
+    db.prepare(
+      `INSERT INTO uploads (id, filename, mime_type, size, conversation_id, uploader_id,
+                            status, storage, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', 'cloudinary-parts', ?)`
+    ).run(
+      fileId,
+      safeFilename(filename),
+      typeof mimeType === 'string' && mimeType ? mimeType.slice(0, 120) : 'application/octet-stream',
+      totalSize,
+      conversationId,
+      req.user.id,
+      Date.now()
+    );
+    console.log(`[uploads] movie-init ${fileId} (${totalSize} bytes, ${parts} parts)`);
+    res.status(201).json({
+      fileId,
+      partSize: MOVIE_PART_SIZE,
+      parts,
+      cloudName: MOVIE_CLOUD_NAME,
+      apiKey: MOVIE_API_KEY,
+      signatures,
+    });
+  })
+);
+
+// POST /api/uploads/movie-complete {fileId}
+router.post(
+  '/movie-complete',
+  ah(async (req, res) => {
+    const { fileId } = req.body || {};
+    if (typeof fileId !== 'string' || !fileId) {
+      return res.status(400).json({ error: 'fileId is required' });
+    }
+    const up = db.prepare('SELECT * FROM uploads WHERE id = ?').get(fileId);
+    if (!up || up.storage !== 'cloudinary-parts') {
+      return res.status(404).json({ error: 'Movie upload not found' });
+    }
+    if (up.status !== 'pending') {
+      return res.status(400).json({ error: 'Upload is already complete' });
+    }
+    if (up.uploader_id !== req.user.id) {
+      return res.status(403).json({ error: 'Upload belongs to another user' });
+    }
+
+    // Har part Cloudinary par maujood hai ya nahi — HEAD se verify.
+    // (Client jhooth bol sakta hai; bytes ka saboot Cloudinary se lo.)
+    const parts = Math.ceil(up.size / MOVIE_PART_SIZE);
+    let verified = 0;
+    for (let i = 0; i < parts; i++) {
+      const publicId = moviePartPublicId(fileId, i);
+      const expected = i === parts - 1 ? up.size - i * MOVIE_PART_SIZE : MOVIE_PART_SIZE;
+      const got = await headPartSize(publicId);
+      if (got !== expected) {
+        return res.status(400).json({ error: `Part ${i + 1}/${parts} missing on Cloudinary — dobara bhejo` });
+      }
+      verified++;
+    }
+
+    db.prepare("UPDATE uploads SET status = 'complete' WHERE id = ?").run(fileId);
+    db.prepare(
+      `INSERT OR REPLACE INTO movie_archives
+       (file_id, filename, mime_type, total_size, part_size, parts, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'complete', ?)`
+    ).run(fileId, up.filename, up.mime_type, up.size, MOVIE_PART_SIZE, parts, Date.now());
+    console.log(`[uploads] movie-complete ${fileId} (${verified}/${parts} parts verified)`);
+    res.json({
+      fileId,
+      url: `/api/files/${fileId}`,
+      filename: up.filename,
+      mimeType: up.mime_type,
+      size: up.size,
+    });
   })
 );
 

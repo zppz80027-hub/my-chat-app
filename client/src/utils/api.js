@@ -625,17 +625,163 @@ export async function uploadFileToCloudinary(file, conversationId, onProgress, e
 }
 
 /**
- * Smart upload: pehle direct-to-Cloudinary (tez + permanent), kuch bhi fail
- * ho to R2 phir purane relay uploadFile() par automatically gir jao. Cancel
+ * Smart upload: badi movie (>80MB video) seedha Cloudinary par tukdon me jati
+ * hai (signed, server secret kabhi client me nahi) — Render ki 5GB/month
+ * bandwidth bachi rehti hai aur service suspend nahi hoti. Kuch bhi fail ho
+ * to R2 phir purane relay uploadFile() par automatically gir jao. Cancel
  * (AbortError) par fallback nahi — user ne khud roka hai.
  */
+const MOVIE_DIRECT_MIN = 80 * 1024 * 1024;
 export async function uploadFileSmart(file, conversationId, onProgress, externalSignal) {
-  // User ki pasand (pehle jaisa): Cloudinary bilkul nahi — har file seedha
-  // purane relay raste se jayegi (server par 20GB tak, resume ke saath).
+  const isBigVideo = (file.type || '').startsWith('video/') && file.size >= MOVIE_DIRECT_MIN;
+  if (isBigVideo) {
+    try {
+      return await uploadMovieDirect(file, conversationId, onProgress, externalSignal);
+    } catch (err) {
+      if (err.name === 'AbortError' || (externalSignal && externalSignal.aborted)) throw err;
+      console.warn('[upload] movie-direct fail, relay par gir rahe hain:', err.message);
+    }
+  }
   try {
     return await uploadFileDirectToR2(file, conversationId, onProgress, externalSignal);
   } catch (err) {
     if (err.name === 'AbortError' || (externalSignal && externalSignal.aborted)) throw err;
     return uploadFile(file, conversationId, onProgress, externalSignal);
+  }
+}
+
+// ---- MOVIE DIRECT-TO-CLOUDINARY (signed parts, Render bypass) ----
+// Badi movie ke 80MB tukde phone SEEDHA Cloudinary par bhejta hai. Server sirf
+// sign karta hai (/api/uploads/movie-init) — secret kabhi client me nahi jata.
+// Playback bhi Cloudinary se seedha hota hai (Service Worker), isliye Render
+// ki free bandwidth (5GB/month) kharch nahi hoti aur suspend wali problem
+// dobara nahi aati.
+function movieResumeKey(file) {
+  return `cloude-movie-resume:${file.name}|${file.size}|${file.lastModified}`;
+}
+function readMovieResume(file) {
+  try {
+    const raw = localStorage.getItem(movieResumeKey(file));
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data.fileId || Date.now() - data.ts > 24 * 60 * 60 * 1000) {
+      localStorage.removeItem(movieResumeKey(file));
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+/** Ek part Cloudinary par bhejo (XMLHttpRequest taaki progress mile). */
+function sendMoviePart(blob, partIndex, sig, cloudName, apiKey, externalSignal, onPartProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      externalSignal.addEventListener('abort', () => xhr.abort(), { once: true });
+    }
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable && onPartProgress) onPartProgress(e.loaded / e.total);
+    });
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve(true);
+      else reject(new Error(`Movie part ${partIndex + 1} upload failed (${xhr.status})`));
+    });
+    xhr.addEventListener('error', () => reject(new Error('Movie part network error')));
+    xhr.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    const fd = new FormData();
+    fd.append('file', blob, `part-${partIndex}.bin`);
+    fd.append('api_key', apiKey);
+    fd.append('timestamp', sig.timestamp);
+    fd.append('signature', sig.signature);
+    fd.append('public_id', sig.publicId);
+    fd.append('overwrite', 'true');
+    xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloudName}/raw/upload`);
+    xhr.send(fd);
+  });
+}
+
+/**
+ * Badi movie seedha Cloudinary par (tukdon me), phir server par register.
+ * Returns {fileId, url, filename, mimeType, size} — uploadFile() jaisa shape.
+ */
+export async function uploadMovieDirect(file, conversationId, onProgress, externalSignal) {
+  let wakeLock = await acquireWakeLock();
+  const reLock = async () => {
+    if (document.visibilityState === 'visible' && !wakeLock) {
+      wakeLock = await acquireWakeLock();
+    }
+  };
+  document.addEventListener('visibilitychange', reLock);
+  try {
+    // Resume: pehle ki adhoori movie-init ka fileId + hue parts nikalo.
+    const saved = readMovieResume(file);
+    let init;
+    if (saved) {
+      init = saved.init;
+    } else {
+      init = await api.post('/api/uploads/movie-init', {
+        filename: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size,
+        conversationId,
+      });
+      try {
+        localStorage.setItem(movieResumeKey(file), JSON.stringify({ fileId: init.fileId, init, doneParts: [], ts: Date.now() }));
+      } catch {}
+    }
+    const { fileId, partSize, parts, cloudName, apiKey, signatures } = init;
+    if (!fileId || !parts || !signatures || signatures.length !== parts) {
+      throw new Error('Movie init failed');
+    }
+    let doneParts = (saved && Array.isArray(saved.doneParts) ? saved.doneParts : []).filter(
+      (i) => Number.isInteger(i) && i >= 0 && i < parts
+    );
+    if (onProgress && doneParts.length > 0) onProgress(doneParts.length / parts);
+
+    for (let i = 0; i < parts; i++) {
+      if (doneParts.includes(i)) continue;
+      const start = i * partSize;
+      const blob = file.slice(start, Math.min(start + partSize, file.size));
+      let lastErr = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await sendMoviePart(blob, i, signatures[i], cloudName, apiKey, externalSignal, (p) => {
+            if (onProgress) onProgress((i + p) / parts);
+          });
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (err.name === 'AbortError') throw err;
+          if (attempt < 3) await new Promise((r) => setTimeout(r, 1200 * attempt));
+        }
+      }
+      if (lastErr) throw lastErr;
+      doneParts = [...doneParts, i];
+      try {
+        localStorage.setItem(movieResumeKey(file), JSON.stringify({ fileId, init, doneParts, ts: Date.now() }));
+      } catch {}
+      if (onProgress) onProgress((i + 1) / parts);
+    }
+
+    // Sab parts Cloudinary par — server verify karke register karega.
+    const reg = await api.post('/api/uploads/movie-complete', { fileId });
+    try {
+      localStorage.removeItem(movieResumeKey(file));
+    } catch {}
+    if (onProgress) onProgress(1);
+    return reg;
+  } finally {
+    document.removeEventListener('visibilitychange', reLock);
+    try {
+      await wakeLock?.release();
+    } catch {}
+    wakeLock = null;
   }
 }

@@ -92,9 +92,14 @@ async function boot() {
   // 3. Ab se har 5 minute me DB ka backup Cloudinary par.
   startAutoBackup();
 
-  // 4. Badi movies (archive) ki gum local files background me wapas jodo.
+  // 4. Purani local movies -> direct Cloudinary streaming (bandwidth bachao),
+  //    phir bachi hui local movies ki gum files background me wapas jodo.
   try {
-    require('./src/movieArchive').restoreAllMoviesInBackground();
+    const ma = require('./src/movieArchive');
+    setTimeout(() => {
+      ma.migrateArchivesToDirect().catch((e) => console.log('[movie-archive] migrate fail:', e.message));
+    }, 5000);
+    ma.restoreAllMoviesInBackground();
   } catch (e) {
     console.log('[movie-archive] boot restore start fail:', e.message);
   }

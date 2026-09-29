@@ -25,6 +25,26 @@ function filePathFor(uploadId, filename) {
 }
 
 router.get(
+  '/:fileId/manifest',
+  ah(async (req, res) => {
+    // Badi movie ke tukde Cloudinary par hain — Service Worker isi manifest
+    // se seedha Cloudinary se stream karta hai (Render bandwidth = 0).
+    const { movieManifest } = require('../movieArchive');
+    const up = db.prepare('SELECT * FROM uploads WHERE id = ?').get(req.params.fileId);
+    if (!up || up.status !== 'complete') {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    if (!up.conversation_id || !isMember(up.conversation_id, req.user.id)) {
+      return res.status(403).json({ error: 'Not a member of this conversation' });
+    }
+    const m = movieManifest(up.id);
+    if (!m) return res.status(404).json({ error: 'Not a direct-stream movie' });
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.json(m);
+  })
+);
+
+router.get(
   '/:fileId',
   ah(async (req, res) => {
     const up = db.prepare('SELECT * FROM uploads WHERE id = ?').get(req.params.fileId);
@@ -33,6 +53,17 @@ router.get(
     }
     if (!up.conversation_id || !isMember(up.conversation_id, req.user.id)) {
       return res.status(403).json({ error: 'Not a member of this conversation' });
+    }
+
+    // Cloudinary-parts movie: bytes Render se NAHI jate. Service Worker
+    // /manifest se tukde nikal ke seedha Cloudinary se stream karta hai.
+    // (SW ke bina seedha kholne par JSON milta hai — app hamesha SW chalati hai.)
+    if (up.storage === 'cloudinary-parts') {
+      const { movieManifest } = require('../movieArchive');
+      const m = movieManifest(up.id);
+      if (!m) return res.status(404).json({ error: 'Movie manifest missing' });
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      return res.json(m);
     }
 
     // Cloudinary-backed file: auth check ho chuka hai, ab seedha Cloudinary
