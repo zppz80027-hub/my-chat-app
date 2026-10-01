@@ -681,11 +681,14 @@ router.post(
     if (typeof conversationId !== 'string' || !isMember(conversationId, req.user.id)) {
       return res.status(403).json({ error: 'Not a member of this conversation' });
     }
-    // Google Drive share link -> seedha download link (nahi to player me nahi chalegi).
+    // Google Drive share link -> Drive ka apna preview player use hoga.
+    // (uc download link badi file par virus-warning page deta hai, aur MKV
+    //  jaisi file browser ke <video> me waise bhi nahi chalti — Drive ka
+    //  player transcode karke sab chalata hai.)
     let direct = u.toString();
     const dm = host === 'drive.google.com' && u.pathname.match(/\/file\/d\/([^/?#]+)/);
     const did = dm ? dm[1] : host === 'drive.google.com' && u.pathname === '/uc' ? u.searchParams.get('id') : null;
-    if (did) direct = `https://drive.google.com/uc?export=download&confirm=t&id=${encodeURIComponent(did)}`;
+    if (did) direct = `https://drive.google.com/file/d/${encodeURIComponent(did)}/view`;
     let name = typeof filename === 'string' ? safeFilename(filename.trim()).slice(0, 120) : '';
     if (!name) {
       const last = u.pathname.split('/').filter(Boolean).pop() || '';

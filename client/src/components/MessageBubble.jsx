@@ -2,12 +2,108 @@ import React, { useMemo, useRef, useState } from 'react';
 import { fileUrl } from '../utils/api';
 import { fmtSize, fmtTime } from '../utils/format';
 
+// Google Drive file link → Drive ka preview player (iframe).
+// Badi file par uc-download virus-warning page deta hai, aur MKV jaisi
+// file browser ke <video> me waise bhi nahi chalti — Drive ka apna player
+// transcode karke sab chalata hai. Purane uc?id= wale link bhi pakde jate
+// hain taaki purane message bhi theek ho jayein.
+function drivePreview(url) {
+  if (!url) return null;
+  const s = String(url);
+  let m = s.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (!m) m = s.match(/drive\.google\.com\/uc\?.*[?&]id=([a-zA-Z0-9_-]+)/);
+  return m ? `https://drive.google.com/file/d/${m[1]}/preview` : null;
+}
+
+// Drive preview iframe + fullscreen overlay (landscape lock ke saath).
+function DrivePreview({ preview, filename }) {
+  const [full, setFull] = useState(false);
+  const openFull = (e) => {
+    if (e) e.stopPropagation();
+    setFull(true);
+    setTimeout(() => {
+      try {
+        const el = document.getElementById('cloude-fs-overlay');
+        if (el && el.requestFullscreen) {
+          const p = el.requestFullscreen({ navigationUI: 'hide' });
+          if (p && p.catch) p.catch(() => {});
+        }
+      } catch {}
+      try {
+        if (screen.orientation && screen.orientation.lock) {
+          screen.orientation.lock('landscape').catch(() => {});
+        }
+      } catch {}
+    }, 120);
+  };
+  const closeFull = () => {
+    setFull(false);
+    try {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        const p = document.exitFullscreen();
+        if (p && p.catch) p.catch(() => {});
+      }
+    } catch {}
+    try {
+      if (screen.orientation && screen.orientation.unlock) {
+        screen.orientation.unlock();
+      }
+    } catch {}
+  };
+  return (
+    <>
+      <div className="relative">
+        <iframe
+          src={preview}
+          title={filename || 'Google Drive video'}
+          className="h-64 w-full rounded-lg bg-black"
+          allow="autoplay; fullscreen"
+          allowFullScreen
+        />
+        <button
+          onClick={openFull}
+          title="Poori screen par dekho"
+          className="absolute right-2 top-2 rounded-full bg-black/60 px-2.5 py-1 text-base text-white"
+        >
+          ⛶
+        </button>
+      </div>
+      {full && (
+        <div id="cloude-fs-overlay" className="fixed inset-0 z-[100] bg-black">
+          <iframe
+            src={preview}
+            title={filename || 'Google Drive video'}
+            className="absolute inset-0 h-full w-full"
+            allow="autoplay; fullscreen"
+            allowFullScreen
+          />
+          <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-2 bg-gradient-to-b from-black/80 to-transparent p-3 pb-6">
+            <span className="truncate text-sm text-white">{filename || 'Movie'}</span>
+            <button
+              onClick={closeFull}
+              onTouchEnd={(e) => { e.stopPropagation(); closeFull(); }}
+              className="shrink-0 rounded-full bg-white/30 px-4 py-2 text-2xl text-white"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // Video player jo 503 (movie abhi taiyaar ho rahi hai) par retry dikhata hai.
 function ResilientVideo({ src, filename, size, remote }) {
   const [failed, setFailed] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [full, setFull] = useState(false);
   const vidRef = useRef(null);
+  // Drive link hai to Drive ka apna player dikhao (MKV bhi chal jayegi).
+  const preview = drivePreview(src);
+  if (preview) {
+    return <DrivePreview preview={preview} filename={filename} />;
+  }
   const openFull = (e) => {
     if (e) e.stopPropagation();
     try { vidRef.current && vidRef.current.pause(); } catch {}
@@ -173,16 +269,16 @@ function LinkEmbed({ url }) {
   }
 
   if (driveMatch) {
-    // confirm=t zaroori hai — nahi to Drive badi file par virus-scan wala page dikhata hai aur video nahi chalti.
-    const directUrl = `https://drive.google.com/uc?export=download&confirm=t&id=${driveMatch[1]}`;
+    // Drive ka apna preview player — MKV/transcode sab wahi sambhalta hai.
+    const preview = `https://drive.google.com/file/d/${driveMatch[1]}/preview`;
     return (
       <span className="my-1 block">
-        <video
-          src={directUrl}
-          controls
-          playsInline
-          preload="metadata"
-          className="max-h-64 w-full rounded-lg bg-black"
+        <iframe
+          src={preview}
+          title="Google Drive video"
+          className="h-64 w-full rounded-lg bg-black"
+          allow="autoplay; fullscreen"
+          allowFullScreen
         />
         <span className="block text-xs text-gray-400">📀 Google Drive video — upar play dabao</span>
       </span>
