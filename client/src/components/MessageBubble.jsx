@@ -23,6 +23,49 @@ function driveDownload(url) {
   const id = driveFileId(url);
   return id ? `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t` : null;
 }
+// Ek tap me Drive download: Google badi file par virus-warning page dikhata
+// hai — app khud us page ko padh kar (CORS open hai) "Download anyway" wala
+// form submit kar deti hai, taaki user ko doosra tap na karna pade.
+async function driveOneTapDownload(driveUrl) {
+  const id = driveFileId(driveUrl);
+  const base = id
+    ? `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t`
+    : null;
+  if (!base) return;
+  // Pehle hi tab khol do taaki popup-blocker na roke; URL baad me set hogi.
+  const win = window.open('about:blank', '_blank');
+  const go = (u) => { if (win) win.location.href = u; else window.open(u, '_blank'); };
+  let ctrl = null;
+  try {
+    ctrl = new AbortController();
+    const r = await fetch(base, { signal: ctrl.signal });
+    const ct = (r.headers.get('content-type') || '').toLowerCase();
+    if (!ct.includes('text/html')) {
+      // Seedhi file aa rahi hai — fetch roko, browser khud download karega.
+      try { ctrl.abort(); } catch {}
+      go(base);
+      return;
+    }
+    const html = await r.text();
+    // Warning page ke "Download anyway" form ke hidden fields uthao.
+    const formMatch = html.match(/<form[^>]*id="download-form"[^>]*action="([^"]+)"/i);
+    const action = formMatch ? formMatch[1] : 'https://drive.usercontent.google.com/download';
+    const params = new URLSearchParams();
+    const inputRe = /<input[^>]*type="hidden"[^>]*>/gi;
+    let im;
+    while ((im = inputRe.exec(html)) !== null) {
+      const nm = im[0].match(/name="([^"]+)"/i);
+      const vm = im[0].match(/value="([^"]*)"/i);
+      if (nm) params.set(nm[1], vm ? vm[1] : '');
+    }
+    if (id && !params.get('id')) params.set('id', id);
+    if ([...params.keys()].length === 0) { go(base); return; }
+    go(action + (action.includes('?') ? '&' : '?') + params.toString());
+  } catch (e) {
+    try { ctrl && ctrl.abort(); } catch {}
+    go(base);
+  }
+}
 
 // Drive preview iframe + fullscreen overlay (landscape lock ke saath).
 function DrivePreview({ preview, filename }) {
@@ -70,17 +113,13 @@ function DrivePreview({ preview, filename }) {
           allowFullScreen
         />
         <div className="absolute right-2 top-2 flex gap-2">
-          <a
-            href={driveDownload(preview) || preview}
-            download={filename || 'movie'}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
             title="Movie download karo"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); driveOneTapDownload(preview); }}
             className="rounded-full bg-black/60 px-2.5 py-1 text-base text-white"
           >
             ⬇
-          </a>
+          </button>
           <button
             onClick={openFull}
             title="Poori screen par dekho"
@@ -316,16 +355,12 @@ function LinkEmbed({ url }) {
           allowFullScreen
         />
         <span className="block text-xs text-gray-400">📀 Google Drive video — upar play dabao</span>
-        <a
-          href={`https://drive.usercontent.google.com/download?id=${driveMatch[1]}&export=download&confirm=t`}
-          download
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
           className="block text-xs text-mint-400 underline"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); driveOneTapDownload(url); }}
         >
           ⬇ Download
-        </a>
+        </button>
       </span>
     );
   }
