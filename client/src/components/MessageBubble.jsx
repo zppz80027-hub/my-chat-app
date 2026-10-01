@@ -112,18 +112,18 @@ function DrivePreview({ preview, filename }) {
           allow="autoplay; fullscreen"
           allowFullScreen
         />
-        <div className="absolute right-2 top-2 flex gap-2">
+        <div className="absolute left-2 top-2 flex gap-2">
           <button
             title="Movie download karo"
             onClick={(e) => { e.stopPropagation(); driveOneTapDownload(preview); }}
-            className="rounded-full bg-black/60 px-2.5 py-1 text-base text-white"
+            className="rounded-full bg-black/60 px-2 py-0.5 text-sm leading-tight text-white"
           >
             ⬇
           </button>
           <button
             onClick={openFull}
             title="Poori screen par dekho"
-            className="rounded-full bg-black/60 px-2.5 py-1 text-base text-white"
+            className="rounded-full bg-black/60 px-2 py-0.5 text-sm leading-tight text-white"
           >
             ⛶
           </button>
@@ -229,13 +229,26 @@ function ResilientVideo({ src, filename, size, remote }) {
           className="max-h-64 w-full bg-black"
           onError={() => setFailed(true)}
         />
-        <button
-          onClick={openFull}
-          title="Poori screen par dekho"
-          className="absolute right-2 top-2 rounded-full bg-black/60 px-2.5 py-1 text-base text-white"
-        >
-          ⛶
-        </button>
+        <div className="absolute left-2 top-2 flex gap-2">
+          <a
+            href={src}
+            download={filename || 'movie'}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Movie download karo"
+            onClick={(e) => e.stopPropagation()}
+            className="rounded-full bg-black/60 px-2 py-0.5 text-sm leading-tight text-white"
+          >
+            ⬇
+          </a>
+          <button
+            onClick={openFull}
+            title="Poori screen par dekho"
+            className="rounded-full bg-black/60 px-2 py-0.5 text-sm leading-tight text-white"
+          >
+            ⛶
+          </button>
+        </div>
       </div>
       {full && (
         <div id="cloude-fs-overlay" className="fixed inset-0 z-[100] bg-black">
