@@ -273,6 +273,7 @@ function renderRichText(text) {
 // URL ko dekh kar sahi player/embed dikhao.
 function LinkEmbed({ url }) {
   const [expanded, setExpanded] = useState(false);
+  const [full, setFull] = useState(false);
   const lower = url.toLowerCase();
 
   // TeraBox / terashare link → share page ko iframe me kholo.
@@ -327,22 +328,92 @@ function LinkEmbed({ url }) {
   if (driveMatch) {
     // Drive ka apna preview player — MKV/transcode sab wahi sambhalta hai.
     const preview = `https://drive.google.com/file/d/${driveMatch[1]}/preview`;
+    const openFull = (e) => {
+      if (e) e.stopPropagation();
+      setFull(true);
+      setTimeout(() => {
+        try {
+          const el = document.getElementById('cloude-fs-overlay');
+          if (el && el.requestFullscreen) {
+            const p = el.requestFullscreen({ navigationUI: 'hide' });
+            if (p && p.catch) p.catch(() => {});
+          }
+        } catch {}
+        try {
+          if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(() => {});
+          }
+        } catch {}
+      }, 120);
+    };
+    const closeFull = () => {
+      setFull(false);
+      try {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          const p = document.exitFullscreen();
+          if (p && p.catch) p.catch(() => {});
+        }
+      } catch {}
+      try {
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        }
+      } catch {}
+    };
     return (
       <span className="my-1 block">
-        <iframe
-          src={preview}
-          title="Google Drive video"
-          className="h-64 w-full rounded-lg bg-black"
-          allow="autoplay; fullscreen"
-          allowFullScreen
-        />
+        <span className="relative block">
+          <iframe
+            src={preview}
+            title="Google Drive video"
+            className="h-64 w-full rounded-lg bg-black"
+            allow="autoplay; fullscreen"
+            allowFullScreen
+          />
+          <button
+            onClick={openFull}
+            title="Poori screen par dekho"
+            className="absolute right-2 top-2 rounded-full bg-black/70 px-3 py-1.5 text-base leading-tight text-white active:bg-black/90"
+          >
+            ⛶
+          </button>
+        </span>
         <span className="block text-xs text-gray-400">📀 Google Drive video — upar play dabao</span>
-        <button
-          className="mt-1 rounded-full bg-mint-500 px-4 py-1.5 text-sm font-semibold text-black active:bg-mint-400"
-          onClick={(e) => { e.stopPropagation(); driveOneTapDownload(url); }}
-        >
-          ⬇ Download
-        </button>
+        <span className="mt-1 flex gap-2">
+          <button
+            className="rounded-full bg-mint-500 px-4 py-1.5 text-sm font-semibold text-black active:bg-mint-400"
+            onClick={(e) => { e.stopPropagation(); driveOneTapDownload(url); }}
+          >
+            ⬇ Download
+          </button>
+          <button
+            className="rounded-full bg-white/20 px-4 py-1.5 text-sm font-semibold text-white active:bg-white/30"
+            onClick={openFull}
+          >
+            ⛶ Fullscreen
+          </button>
+        </span>
+        {full && (
+          <div id="cloude-fs-overlay" className="fixed inset-0 z-[100] bg-black">
+            <iframe
+              src={preview}
+              title="Google Drive video"
+              className="absolute inset-0 h-full w-full"
+              allow="autoplay; fullscreen"
+              allowFullScreen
+            />
+            <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-2 bg-gradient-to-b from-black/80 to-transparent p-3 pb-6">
+              <span className="truncate text-sm text-white">Movie</span>
+              <button
+                onClick={closeFull}
+                onTouchEnd={(e) => { e.stopPropagation(); closeFull(); }}
+                className="shrink-0 rounded-full bg-white/30 px-4 py-2 text-2xl text-white"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
       </span>
     );
   }
