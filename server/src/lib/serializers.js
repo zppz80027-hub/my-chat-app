@@ -74,12 +74,16 @@ function serializeMessage(row, viewerId) {
   if (row.file_id && !deletedForEveryone) {
     const up = db.prepare('SELECT * FROM uploads WHERE id = ?').get(row.file_id);
     if (up && up.status === 'complete') {
+      // Remote link (link se movie): player seedha link se chalaye —
+      // yahan koi ?token= nahi lagta taaki JWT teesri site ko leak na ho.
+      const isRemote = up.storage === 'remote-link' && up.remote_url;
       file = {
         id: up.id,
         filename: up.filename,
         mimeType: up.mime_type,
         size: up.size,
-        url: `/api/files/${up.id}`,
+        url: isRemote ? up.remote_url : `/api/files/${up.id}`,
+        ...(isRemote ? { remote: true } : {}),
       };
     }
   }

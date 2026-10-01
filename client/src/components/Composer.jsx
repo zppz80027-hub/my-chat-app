@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useChat } from '../context/ChatContext';
-import { uploadFileSmart, findPendingUpload, findCloudinaryResume } from '../utils/api';
+import { uploadFileSmart, findPendingUpload, findCloudinaryResume, uploadRemoteLink } from '../utils/api';
 import { fmtSize } from '../utils/format';
 import EmojiPicker from './EmojiPicker';
 
@@ -60,6 +60,23 @@ export default function Composer({ convId, replyTo, onCancelReply, editing, onCa
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       doSend();
+    }
+  };
+
+  // Link se movie: paste karo, chat me hi chalegi (koi upload nahi).
+  const sendLinkMovie = async () => {
+    setShowAttach(false);
+    const link = window.prompt('Movie ka link dalo (direct video ya Google Drive link):');
+    if (!link || !link.trim()) return;
+    setSending(true);
+    try {
+      const done = await uploadRemoteLink(link.trim(), convId);
+      await sendFileMessage(convId, done, 'video', null, replyTo);
+      onCancelReply();
+    } catch (e) {
+      window.alert(`Link se movie nahi lagi: ${e.message || e}`);
+    } finally {
+      setSending(false);
     }
   };
 
@@ -195,6 +212,12 @@ export default function Composer({ convId, replyTo, onCancelReply, editing, onCa
                   className="block w-full rounded-lg px-3 py-2.5 text-left text-sm text-gray-200 hover:bg-ink-700"
                 >
                   📄 Documents
+                </button>
+                <button
+                  onClick={sendLinkMovie}
+                  className="block w-full rounded-lg px-3 py-2.5 text-left text-sm text-gray-200 hover:bg-ink-700"
+                >
+                  🔗 Link se movie
                 </button>
               </div>
             </>

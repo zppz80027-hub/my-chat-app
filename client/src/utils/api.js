@@ -45,6 +45,12 @@ export function fileUrl(url) {
   return `${url}${sep}token=${encodeURIComponent(token || '')}`;
 }
 
+/** Link se movie: bina upload ke chat me inline chalegi. */
+export async function uploadRemoteLink(url, conversationId) {
+  const r = await api.post('/api/uploads/remote-link', { url, conversationId });
+  return r;
+}
+
 async function request(path, { method = 'GET', body, headers = {}, signal } = {}, _retried = false) {
   const token = getToken();
   const h = { ...headers };

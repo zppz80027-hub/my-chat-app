@@ -654,6 +654,59 @@ router.post(
   })
 );
 
+// POST /api/uploads/remote-link {url, filename?, conversationId}
+// Link se movie: koi upload nahi hota — bas link save hoti hai aur chat me
+// inline player me chalti hai. Server link ko kabhi fetch nahi karta
+// (isliye SSRF jaisa koi risk nahi); playback seedha link se hota hai,
+// isliye Render ka bandwidth bhi kharch nahi hota.
+router.post(
+  '/remote-link',
+  ah(async (req, res) => {
+    const { url, filename, conversationId } = req.body || {};
+    let u;
+    try {
+      u = new URL(String(url || '').trim());
+    } catch {
+      return res.status(400).json({ error: 'Sahi link dalo (http/https se shuru)' });
+    }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+      return res.status(400).json({ error: 'Sirf http/https link chalega' });
+    }
+    const host = String(u.hostname || '').toLowerCase();
+    if (host.includes('youtube.com') || /(^|\.)youtu\.be$/.test(host)) {
+      return res
+        .status(400)
+        .json({ error: 'YouTube link seedha nahi chalega — video ki direct link ya Google Drive link dalo' });
+    }
+    if (typeof conversationId !== 'string' || !isMember(conversationId, req.user.id)) {
+      return res.status(403).json({ error: 'Not a member of this conversation' });
+    }
+    // Google Drive share link -> seedha download link (nahi to player me nahi chalegi).
+    let direct = u.toString();
+    const dm = host === 'drive.google.com' && u.pathname.match(/\/file\/d\/([^/?#]+)/);
+    const did = dm ? dm[1] : host === 'drive.google.com' && u.pathname === '/uc' ? u.searchParams.get('id') : null;
+    if (did) direct = `https://drive.google.com/uc?export=download&confirm=t&id=${encodeURIComponent(did)}`;
+    let name = typeof filename === 'string' ? safeFilename(filename.trim()).slice(0, 120) : '';
+    if (!name) {
+      const last = u.pathname.split('/').filter(Boolean).pop() || '';
+      try {
+        name = safeFilename(decodeURIComponent(last)).slice(0, 120);
+      } catch {
+        name = '';
+      }
+    }
+    if (!name) name = 'movie-link';
+    const fileId = uuidv4();
+    db.prepare(
+      `INSERT INTO uploads (id, filename, mime_type, size, conversation_id, uploader_id,
+                            status, storage, remote_url, created_at)
+       VALUES (?, ?, 'video/mp4', 0, ?, ?, 'complete', 'remote-link', ?, ?)`
+    ).run(fileId, name, conversationId, req.user.id, direct, Date.now());
+    console.log(`[uploads] remote-link ${fileId} -> ${host}`);
+    res.status(201).json({ fileId, url: direct, filename: name, mimeType: 'video/mp4', size: 0 });
+  })
+);
+
 // POST /api/uploads/movie-complete {fileId}
 router.post(
   '/movie-complete',

@@ -167,6 +167,7 @@ db.exec(SCHEMA);
   if (!cols.includes('r2_key')) db.exec('ALTER TABLE uploads ADD COLUMN r2_key TEXT');
   if (!cols.includes('r2_upload_id')) db.exec('ALTER TABLE uploads ADD COLUMN r2_upload_id TEXT');
   if (!cols.includes('cloudinary_url')) db.exec('ALTER TABLE uploads ADD COLUMN cloudinary_url TEXT');
+  if (!cols.includes('remote_url')) db.exec('ALTER TABLE uploads ADD COLUMN remote_url TEXT');
 }
 // Movie archive table — badi movies ke tukdon ka hisaab (Cloudinary par permanent).
 // status: 'archiving' | 'complete' | 'failed' | 'restoring'

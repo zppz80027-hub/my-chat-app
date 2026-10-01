@@ -3,7 +3,7 @@ import { fileUrl } from '../utils/api';
 import { fmtSize, fmtTime } from '../utils/format';
 
 // Video player jo 503 (movie abhi taiyaar ho rahi hai) par retry dikhata hai.
-function ResilientVideo({ src, filename, size }) {
+function ResilientVideo({ src, filename, size, remote }) {
   const [failed, setFailed] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [full, setFull] = useState(false);
@@ -46,7 +46,7 @@ function ResilientVideo({ src, filename, size }) {
     return (
       <div className="rounded-lg bg-black/40 p-3 text-center text-xs text-gray-300">
         <div className="mb-1 text-lg">⏳</div>
-        <div>Movie server par taiyaar ho rahi hai…</div>
+        <div>{remote ? 'Link se movie nahi chali — link check karo (direct video ya Drive link hona chahiye).' : 'Movie server par taiyaar ho rahi hai…'}</div>
         <button
           className="mt-2 rounded-full bg-mint-500 px-3 py-1 font-medium text-black"
           onClick={() => {
@@ -428,9 +428,9 @@ export default function MessageBubble({
             )}
             {isVideoMsg && (
               <div className="mb-1 overflow-hidden rounded-lg" onClick={(e) => e.stopPropagation()}>
-                <ResilientVideo src={fileUrl(m.file.url)} filename={m.file.filename} size={m.file.size} />
+                <ResilientVideo src={m.file.remote ? m.file.url : fileUrl(m.file.url)} filename={m.file.filename} size={m.file.size} remote={m.file.remote} />
                 <div className="truncate px-1 py-1 text-xs text-gray-400">
-                  🎬 {m.file.filename} · {fmtSize(m.file.size)}
+                  {m.file.remote ? `🔗 ${m.file.filename}` : `🎬 ${m.file.filename} · ${fmtSize(m.file.size)}`}
                 </div>
               </div>
             )}
