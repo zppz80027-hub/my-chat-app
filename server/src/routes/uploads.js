@@ -760,55 +760,84 @@ router.post(
   })
 );
 
-// GET /api/uploads/drive-download-url?id=FILE_ID
-// Google Drive ki badi file par "virus scan warning" page aata hai; browser se
-// us page ko fetch karne par CORS block hota hai, isliye server warning page
-// khud fetch karta hai (Origin header ke saath) aur uske download form ke
-// hidden fields (uuid/at) nikal kar seedha download URL deta hai.
-// Isse ⬇ dabate hi download shuru hoti hai — "Download anyway" nahi dabana padta.
-// Server sirf chhota sa HTML page fetch karta hai; asli file (GBs) seedha
-// Google -> user ke phone par jati hai, Render ka bandwidth kharch nahi hota.
+// GET /api/uploads/drive-file?id=FILE_ID
+// One-tap Drive download — server file ko Google se lekar user ko stream karta hai.
+// Kyun proxy? Google ka "uuid" token usi session me valid hota hai jisne warning
+// page fetch kiya. Server apne session se uuid mint karta hai (server ke liye valid),
+// lekin user ke browser (Google me logged-in) me wahi uuid reject ho jata hai —
+// isliye token ko user ke browser me bhejna kaam nahi karta (browser test me proven).
+// Server khud Google se bytes lekar user ko pipe karta hai: ⬇ dabao -> naya tab ->
+// download turant shuru. Koi "Download anyway" nahi, koi warning page nahi.
+// NOTE: File (GBs) Render se hokar jati hai — har download par bandwidth kharch hota hai.
 // File id strictly validate hoti hai aur host hardcoded hai (SSRF safe).
+// Streaming hai — poori file memory me nahi aati.
 router.get(
-  '/drive-download-url',
+  '/drive-file',
   ah(async (req, res) => {
     const id = String(req.query.id || '').trim();
     if (!/^[a-zA-Z0-9_-]{10,100}$/.test(id)) {
       return res.status(400).json({ error: 'Galat Drive file id' });
     }
+    const UA =
+      'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36';
     const base = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t`;
+    let tokenUrl = base;
+    let filename = 'movie.mkv';
+    // Step 1: warning page fetch karke uuid nikalo (server ke session ke liye valid).
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 15000);
       const r = await fetch(base, {
         signal: ctrl.signal,
-        headers: {
-          Origin: 'https://chatapp-xsja.onrender.com',
-          'User-Agent':
-            'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36',
-        },
+        headers: { Origin: 'https://chatapp-xsja.onrender.com', 'User-Agent': UA },
       });
       clearTimeout(timer);
       const ct = (r.headers.get('content-type') || '').toLowerCase();
-      if (!ct.includes('text/html')) return res.json({ url: base });
-      const html = await r.text();
-      const formMatch = html.match(/<form[^>]*id="download-form"[^>]*action="([^"]+)"/i);
-      if (!formMatch) return res.json({ url: base });
-      const params = new URLSearchParams();
-      const tagRe = /<input[^>]*type="hidden"[^>]*>/gi;
-      let tag;
-      while ((tag = tagRe.exec(html)) !== null) {
-        const nm = tag[0].match(/name="([^"]+)"/i);
-        const vl = tag[0].match(/value="([^"]*)"/i);
-        if (nm && vl) params.set(nm[1], vl[1]);
+      if (ct.includes('text/html')) {
+        const html = await r.text();
+        const fnMatch = html.match(/([\w\-.]+\.(mp4|mkv|avi|mov|webm))/i);
+        if (fnMatch) filename = fnMatch[1];
+        const formMatch = html.match(/<form[^>]*id="download-form"[^>]*action="([^"]+)"/i);
+        if (formMatch) {
+          const params = new URLSearchParams();
+          const tagRe = /<input[^>]*type="hidden"[^>]*>/gi;
+          let tag;
+          while ((tag = tagRe.exec(html)) !== null) {
+            const nm = tag[0].match(/name="([^"]+)"/i);
+            const vl = tag[0].match(/value="([^"]*)"/i);
+            if (nm && vl) params.set(nm[1], vl[1]);
+          }
+          if (params.get('uuid')) {
+            const action = /^https?:\/\//i.test(formMatch[1])
+              ? formMatch[1]
+              : 'https://drive.usercontent.google.com/download';
+            tokenUrl = action + '?' + params.toString();
+          }
+        }
       }
-      if (!params.get('uuid')) return res.json({ url: base });
-      const action = /^https?:\/\//i.test(formMatch[1])
-        ? formMatch[1]
-        : 'https://drive.usercontent.google.com/download';
-      return res.json({ url: action + '?' + params.toString() });
     } catch {
-      return res.json({ url: base });
+      /* base URL par fallback */
+    }
+    // Step 2: Google se file lekar client ko stream karo.
+    try {
+      const gres = await fetch(tokenUrl, { headers: { 'User-Agent': UA } });
+      const gct = (gres.headers.get('content-type') || '').toLowerCase();
+      if (!gres.ok || gct.includes('text/html')) {
+        return res.status(502).json({ error: 'Google se file nahi mili' });
+      }
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      const len = gres.headers.get('content-length');
+      if (len) res.setHeader('Content-Length', len);
+      for await (const chunk of gres.body) {
+        if (!res.write(chunk)) {
+          await new Promise((resolve) => res.once('drain', resolve));
+        }
+      }
+      res.end();
+    } catch {
+      if (!res.headersSent) return res.status(502).json({ error: 'Download me dikkat aayi' });
+      res.end();
     }
   })
 );

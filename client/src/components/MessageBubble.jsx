@@ -23,29 +23,13 @@ function driveDownload(url) {
   const id = driveFileId(url);
   return id ? `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t` : null;
 }
-// Ek tap me Drive download: browser se Google ka warning page CORS ki wajah
-// se padha nahi jata, isliye server (/api/uploads/drive-download-url) warning
-// page ka form khud parse karke seedha download URL deta hai.
-// ⬇ dabao -> naya tab -> download turant shuru. Koi "Download anyway" nahi.
-async function driveOneTapDownload(driveUrl) {
+// Ek tap me Drive download: server (/api/uploads/drive-file) Google se file
+// lekar user ko stream karta hai. ⬇ dabao -> naya tab -> download turant shuru.
+// Koi "Download anyway" nahi, koi warning page nahi.
+function driveOneTapDownload(driveUrl) {
   const id = driveFileId(driveUrl);
   if (!id) return;
-  const fallback = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t`;
-  // Pehle hi tab khol do taaki popup-blocker na roke; URL baad me set hogi.
-  const win = window.open('about:blank', '_blank');
-  try {
-    if (win && win.document) {
-      win.document.write('<html><head><title>Download ho rahi hai...</title></head><body style="background:#111;color:#eee;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><p>⏳ Download taiyaar ho rahi hai...</p></body></html>');
-      win.document.close();
-    }
-  } catch {}
-  const go = (u) => { if (win) win.location.href = u; else window.open(u, '_blank'); };
-  try {
-    const r = await fetch(`/api/uploads/drive-download-url?id=${encodeURIComponent(id)}`);
-    const data = await r.json();
-    if (data && data.url) { go(data.url); return; }
-  } catch {}
-  go(fallback);
+  window.open(`/api/uploads/drive-file?id=${encodeURIComponent(id)}`, '_blank');
 }
 
 // Drive preview iframe + fullscreen overlay (landscape lock ke saath).
