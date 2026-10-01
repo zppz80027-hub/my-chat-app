@@ -760,7 +760,7 @@ export async function uploadMovieDirect(file, conversationId, onProgress, extern
       const start = i * partSize;
       const blob = file.slice(start, Math.min(start + partSize, file.size));
       let lastErr = null;
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (let attempt = 1; attempt <= 5; attempt++) {
         try {
           await sendMoviePart(blob, i, signatures[i], cloudName, apiKey, externalSignal, (p) => {
             if (onProgress) onProgress((i + p) / parts);
@@ -770,7 +770,7 @@ export async function uploadMovieDirect(file, conversationId, onProgress, extern
         } catch (err) {
           lastErr = err;
           if (err.name === 'AbortError') throw err;
-          if (attempt < 3) await new Promise((r) => setTimeout(r, 1200 * attempt));
+          if (attempt < 5) await new Promise((r) => setTimeout(r, 1200 * attempt));
         }
       }
       if (lastErr) throw lastErr;

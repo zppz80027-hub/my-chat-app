@@ -23,7 +23,7 @@ const r2 = require('../lib/r2');
 // api_secret kabhi client ko nahi jata — sirf signature banta hai.
 const MOVIE_CLOUD_NAME = 'tzfbjslf';
 const MOVIE_API_KEY = '659554747298259';
-const MOVIE_PART_SIZE = 80 * 1024 * 1024; // 80MB — Cloudinary free limit se safe
+const MOVIE_PART_SIZE = 10 * 1024 * 1024; // 10MB — slow mobile network par bhi poora ho sake; Cloudinary free (~100MB/file) se safe
 const MOVIE_DIRECT_MIN = 80 * 1024 * 1024; // isse badi video seedha Cloudinary jayegi
 
 const router = express.Router();
