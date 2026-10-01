@@ -7,12 +7,21 @@ import { fmtSize, fmtTime } from '../utils/format';
 // file browser ke <video> me waise bhi nahi chalti — Drive ka apna player
 // transcode karke sab chalata hai. Purane uc?id= wale link bhi pakde jate
 // hain taaki purane message bhi theek ho jayein.
-function drivePreview(url) {
+function driveFileId(url) {
   if (!url) return null;
   const s = String(url);
   let m = s.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
   if (!m) m = s.match(/drive\.google\.com\/uc\?.*[?&]id=([a-zA-Z0-9_-]+)/);
-  return m ? `https://drive.google.com/file/d/${m[1]}/preview` : null;
+  return m ? m[1] : null;
+}
+function drivePreview(url) {
+  const id = driveFileId(url);
+  return id ? `https://drive.google.com/file/d/${id}/preview` : null;
+}
+// Drive file ka seedha download link (browser khud download kar lega).
+function driveDownload(url) {
+  const id = driveFileId(url);
+  return id ? `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t` : null;
 }
 
 // Drive preview iframe + fullscreen overlay (landscape lock ke saath).
@@ -60,13 +69,26 @@ function DrivePreview({ preview, filename }) {
           allow="autoplay; fullscreen"
           allowFullScreen
         />
-        <button
-          onClick={openFull}
-          title="Poori screen par dekho"
-          className="absolute right-2 top-2 rounded-full bg-black/60 px-2.5 py-1 text-base text-white"
-        >
-          ⛶
-        </button>
+        <div className="absolute right-2 top-2 flex gap-2">
+          <a
+            href={driveDownload(preview) || preview}
+            download={filename || 'movie'}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Movie download karo"
+            onClick={(e) => e.stopPropagation()}
+            className="rounded-full bg-black/60 px-2.5 py-1 text-base text-white"
+          >
+            ⬇
+          </a>
+          <button
+            onClick={openFull}
+            title="Poori screen par dekho"
+            className="rounded-full bg-black/60 px-2.5 py-1 text-base text-white"
+          >
+            ⛶
+          </button>
+        </div>
       </div>
       {full && (
         <div id="cloude-fs-overlay" className="fixed inset-0 z-[100] bg-black">
@@ -255,15 +277,28 @@ function LinkEmbed({ url }) {
           preload="metadata"
           className="max-h-64 w-full rounded-lg bg-black"
         />
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block truncate text-xs text-mint-400 underline"
-          onClick={(e) => e.stopPropagation()}
-        >
-          🎬 {url.length > 50 ? url.slice(0, 50) + '...' : url}
-        </a>
+        <span className="flex items-center gap-3">
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block truncate text-xs text-mint-400 underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            🎬 {url.length > 50 ? url.slice(0, 50) + '...' : url}
+          </a>
+          <a
+            href={url}
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Video download karo"
+            className="shrink-0 text-xs text-mint-400 underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            ⬇ Download
+          </a>
+        </span>
       </span>
     );
   }
@@ -281,6 +316,16 @@ function LinkEmbed({ url }) {
           allowFullScreen
         />
         <span className="block text-xs text-gray-400">📀 Google Drive video — upar play dabao</span>
+        <a
+          href={`https://drive.usercontent.google.com/download?id=${driveMatch[1]}&export=download&confirm=t`}
+          download
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block text-xs text-mint-400 underline"
+          onClick={(e) => e.stopPropagation()}
+        >
+          ⬇ Download
+        </a>
       </span>
     );
   }
