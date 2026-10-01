@@ -173,7 +173,8 @@ function LinkEmbed({ url }) {
   }
 
   if (driveMatch) {
-    const directUrl = `https://drive.google.com/uc?id=${driveMatch[1]}&export=download`;
+    // confirm=t zaroori hai — nahi to Drive badi file par virus-scan wala page dikhata hai aur video nahi chalti.
+    const directUrl = `https://drive.google.com/uc?export=download&confirm=t&id=${driveMatch[1]}`;
     return (
       <span className="my-1 block">
         <video
