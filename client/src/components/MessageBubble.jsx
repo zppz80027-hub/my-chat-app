@@ -34,6 +34,12 @@ async function driveOneTapDownload(driveUrl) {
   if (!base) return;
   // Pehle hi tab khol do taaki popup-blocker na roke; URL baad me set hogi.
   const win = window.open('about:blank', '_blank');
+  try {
+    if (win && win.document) {
+      win.document.write('<html><head><title>Download ho rahi hai...</title></head><body style="background:#111;color:#eee;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><p>⏳ Download taiyaar ho rahi hai...</p></body></html>');
+      win.document.close();
+    }
+  } catch {}
   const go = (u) => { if (win) win.location.href = u; else window.open(u, '_blank'); };
   let ctrl = null;
   try {
