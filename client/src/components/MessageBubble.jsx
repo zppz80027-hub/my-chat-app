@@ -81,18 +81,18 @@ function DrivePreview({ preview, filename }) {
           allow="autoplay; fullscreen"
           allowFullScreen
         />
-        <div className="absolute left-2 top-2 flex gap-2">
+        <div className="absolute right-2 top-2 flex gap-2">
           <button
             title="Movie download karo"
             onClick={(e) => { e.stopPropagation(); driveOneTapDownload(preview); }}
-            className="rounded-full bg-black/60 px-2 py-0.5 text-sm leading-tight text-white"
+            className="rounded-full bg-black/70 px-3 py-1.5 text-base leading-tight text-white active:bg-black/90"
           >
             ⬇
           </button>
           <button
             onClick={openFull}
             title="Poori screen par dekho"
-            className="rounded-full bg-black/60 px-2 py-0.5 text-sm leading-tight text-white"
+            className="rounded-full bg-black/70 px-3 py-1.5 text-base leading-tight text-white active:bg-black/90"
           >
             ⛶
           </button>
@@ -314,7 +314,7 @@ function LinkEmbed({ url }) {
             target="_blank"
             rel="noopener noreferrer"
             title="Video download karo"
-            className="shrink-0 text-xs text-mint-400 underline"
+            className="shrink-0 rounded-full bg-mint-500 px-3 py-1 text-xs font-semibold text-black"
             onClick={(e) => e.stopPropagation()}
           >
             ⬇ Download
@@ -338,7 +338,7 @@ function LinkEmbed({ url }) {
         />
         <span className="block text-xs text-gray-400">📀 Google Drive video — upar play dabao</span>
         <button
-          className="block text-xs text-mint-400 underline"
+          className="mt-1 rounded-full bg-mint-500 px-4 py-1.5 text-sm font-semibold text-black active:bg-mint-400"
           onClick={(e) => { e.stopPropagation(); driveOneTapDownload(url); }}
         >
           ⬇ Download
