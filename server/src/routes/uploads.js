@@ -760,6 +760,59 @@ router.post(
   })
 );
 
+// GET /api/uploads/drive-download-url?id=FILE_ID
+// Google Drive ki badi file par "virus scan warning" page aata hai; browser se
+// us page ko fetch karne par CORS block hota hai, isliye server warning page
+// khud fetch karta hai (Origin header ke saath) aur uske download form ke
+// hidden fields (uuid/at) nikal kar seedha download URL deta hai.
+// Isse ⬇ dabate hi download shuru hoti hai — "Download anyway" nahi dabana padta.
+// Server sirf chhota sa HTML page fetch karta hai; asli file (GBs) seedha
+// Google -> user ke phone par jati hai, Render ka bandwidth kharch nahi hota.
+// File id strictly validate hoti hai aur host hardcoded hai (SSRF safe).
+router.get(
+  '/drive-download-url',
+  ah(async (req, res) => {
+    const id = String(req.query.id || '').trim();
+    if (!/^[a-zA-Z0-9_-]{10,100}$/.test(id)) {
+      return res.status(400).json({ error: 'Galat Drive file id' });
+    }
+    const base = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t`;
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      const r = await fetch(base, {
+        signal: ctrl.signal,
+        headers: {
+          Origin: 'https://chatapp-xsja.onrender.com',
+          'User-Agent':
+            'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36',
+        },
+      });
+      clearTimeout(timer);
+      const ct = (r.headers.get('content-type') || '').toLowerCase();
+      if (!ct.includes('text/html')) return res.json({ url: base });
+      const html = await r.text();
+      const formMatch = html.match(/<form[^>]*id="download-form"[^>]*action="([^"]+)"/i);
+      if (!formMatch) return res.json({ url: base });
+      const params = new URLSearchParams();
+      const tagRe = /<input[^>]*type="hidden"[^>]*>/gi;
+      let tag;
+      while ((tag = tagRe.exec(html)) !== null) {
+        const nm = tag[0].match(/name="([^"]+)"/i);
+        const vl = tag[0].match(/value="([^"]*)"/i);
+        if (nm && vl) params.set(nm[1], vl[1]);
+      }
+      if (!params.get('uuid')) return res.json({ url: base });
+      const action = /^https?:\/\//i.test(formMatch[1])
+        ? formMatch[1]
+        : 'https://drive.usercontent.google.com/download';
+      return res.json({ url: action + '?' + params.toString() });
+    } catch {
+      return res.json({ url: base });
+    }
+  })
+);
+
 /**
  * Boot-time cleanup: drop incomplete uploads older than 24h (DB rows, chunk
  * tracking, and temp chunk directories).
