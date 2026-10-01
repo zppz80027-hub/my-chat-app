@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { fileUrl } from '../utils/api';
+import { fileUrl, getToken } from '../utils/api';
 import { fmtSize, fmtTime } from '../utils/format';
 
 // Google Drive file link → Drive ka preview player (iframe).
@@ -26,10 +26,14 @@ function driveDownload(url) {
 // Ek tap me Drive download: server (/api/uploads/drive-file) Google se file
 // lekar user ko stream karta hai. ⬇ dabao -> naya tab -> download turant shuru.
 // Koi "Download anyway" nahi, koi warning page nahi.
+// window.open header nahi bhej sakta, isliye JWT ?token= me jata hai (server
+// requireAuth me ise accept karta hai).
 function driveOneTapDownload(driveUrl) {
   const id = driveFileId(driveUrl);
   if (!id) return;
-  window.open(`/api/uploads/drive-file?id=${encodeURIComponent(id)}`, '_blank');
+  const t = getToken();
+  const q = `id=${encodeURIComponent(id)}` + (t ? `&token=${encodeURIComponent(t)}` : '');
+  window.open(`/api/uploads/drive-file?${q}`, '_blank');
 }
 
 // Drive preview iframe + fullscreen overlay (landscape lock ke saath).
