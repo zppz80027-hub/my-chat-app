@@ -614,6 +614,46 @@ router.post(
   })
 );
 
+// POST /api/uploads/movie-resume {fileId} — adhoori movie upload ke liye FRESH signatures.
+// Cloudinary ke signed params ~1 ghante me expire ho jate hain; client resume par
+// purane signatures dobara use karta tha to part fail hote the aur poori file
+// shuru se dobara jati thi ("double upload"). Ye endpoint wahi fileId dobara
+// sign karta hai taaki pehle bheje gaye parts bekar na jayen.
+router.post(
+  '/movie-resume',
+  ah(async (req, res) => {
+    const { fileId } = req.body || {};
+    if (typeof fileId !== 'string' || !fileId) {
+      return res.status(400).json({ error: 'fileId is required' });
+    }
+    const up = db.prepare('SELECT * FROM uploads WHERE id = ?').get(fileId);
+    if (!up || up.storage !== 'cloudinary-parts' || up.status !== 'pending') {
+      return res.status(404).json({ error: 'Movie upload not found' });
+    }
+    if (up.uploader_id !== req.user.id) {
+      return res.status(403).json({ error: 'Upload belongs to another user' });
+    }
+    if (!process.env.CLOUDINARY_API_SECRET) {
+      return res.status(503).json({ error: 'Movie direct upload not configured' });
+    }
+    const parts = Math.ceil(up.size / MOVIE_PART_SIZE);
+    const signatures = [];
+    for (let i = 0; i < parts; i++) {
+      const s = signMoviePart(moviePartPublicId(fileId, i));
+      if (!s) return res.status(503).json({ error: 'Could not sign upload' });
+      signatures.push(s);
+    }
+    res.json({
+      fileId,
+      partSize: MOVIE_PART_SIZE,
+      parts,
+      cloudName: MOVIE_CLOUD_NAME,
+      apiKey: MOVIE_API_KEY,
+      signatures,
+    });
+  })
+);
+
 // POST /api/uploads/movie-complete {fileId}
 router.post(
   '/movie-complete',

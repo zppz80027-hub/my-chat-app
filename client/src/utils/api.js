@@ -635,12 +635,11 @@ const MOVIE_DIRECT_MIN = 80 * 1024 * 1024;
 export async function uploadFileSmart(file, conversationId, onProgress, externalSignal) {
   const isBigVideo = (file.type || '').startsWith('video/') && file.size >= MOVIE_DIRECT_MIN;
   if (isBigVideo) {
-    try {
-      return await uploadMovieDirect(file, conversationId, onProgress, externalSignal);
-    } catch (err) {
-      if (err.name === 'AbortError' || (externalSignal && externalSignal.aborted)) throw err;
-      console.warn('[upload] movie-direct fail, relay par gir rahe hain:', err.message);
-    }
+    // Badi movie seedha Cloudinary jayegi. Fail ho to purane relay par MAT
+    // giro — wahan poori file shuru se dobara jati hai ("double upload") aur
+    // Render ka bandwidth kharch hota hai (suspend wali problem wapas).
+    // Error upar dikhao taaki user retry/resume kar sake.
+    return await uploadMovieDirect(file, conversationId, onProgress, externalSignal);
   }
   try {
     return await uploadFileDirectToR2(file, conversationId, onProgress, externalSignal);
@@ -720,11 +719,23 @@ export async function uploadMovieDirect(file, conversationId, onProgress, extern
   document.addEventListener('visibilitychange', reLock);
   try {
     // Resume: pehle ki adhoori movie-init ka fileId + hue parts nikalo.
+    // NOTE: Cloudinary ke signed params ~1 ghante me expire ho jate hain,
+    // isliye resume par /movie-resume se FRESH signatures lo. Purane
+    // signatures se part fail hote the aur poori file shuru se dobara
+    // jati thi ("double upload").
     const saved = readMovieResume(file);
-    let init;
-    if (saved) {
-      init = saved.init;
-    } else {
+    let init = null;
+    let resumedParts = [];
+    if (saved && saved.fileId) {
+      try {
+        init = await api.post('/api/uploads/movie-resume', { fileId: saved.fileId });
+        resumedParts = Array.isArray(saved.doneParts) ? saved.doneParts : [];
+      } catch (e) {
+        // Server par record nahi (expire/purana) — saved state hatao, neeche naya init hoga.
+        try { localStorage.removeItem(movieResumeKey(file)); } catch {}
+      }
+    }
+    if (!init) {
       init = await api.post('/api/uploads/movie-init', {
         filename: file.name,
         mimeType: file.type || 'application/octet-stream',
@@ -739,7 +750,7 @@ export async function uploadMovieDirect(file, conversationId, onProgress, extern
     if (!fileId || !parts || !signatures || signatures.length !== parts) {
       throw new Error('Movie init failed');
     }
-    let doneParts = (saved && Array.isArray(saved.doneParts) ? saved.doneParts : []).filter(
+    let doneParts = resumedParts.filter(
       (i) => Number.isInteger(i) && i >= 0 && i < parts
     );
     if (onProgress && doneParts.length > 0) onProgress(doneParts.length / parts);
