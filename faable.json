@@ -1,4 +1,5 @@
 {
+  
   "buildpack": "node",
   "buildCommand": "npm run install:all && npm run build",
   "startCommand": "bash server/scripts/boot.sh"
