@@ -1,16 +1,16 @@
 {
-  "description": "Real-time chat web app (WhatsApp-style): 1:1 + group chat, file sharing, voice/video calls. Single service: Express + Socket.IO + SQLite backend serving the React frontend.",
   "name": "chatapp",
+  "version": "1.0.0",
   "private": true,
+  "description": "Real-time chat web app (WhatsApp-style): 1:1 + group chat, file sharing, voice/video",
   "scripts": {
-    "build": "npm --prefix client run build",
+    "build": "npm run install:all && npm --prefix client run build",
     "dev:client": "npm --prefix client run dev",
     "dev:server": "npm --prefix server start",
     "install:all": "npm --prefix server install && npm --prefix client install",
     "start": "node server/index.js",
     "test": "npm --prefix server test"
   },
-  "version": "1.0.0",
   "engines": {
     "node": "20.x"
   }
