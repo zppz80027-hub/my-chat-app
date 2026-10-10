@@ -20,7 +20,7 @@ function drivePreview(url) {
 }
 // Drive API se seedha download — virus warning page skip (acknowledgeAbuse).
 // Key sirf Google Drive API tak restricted hai.
-const DRIVE_API_KEY = 'AIzaSyAzJ3AH0SdbLRXjQ8hK4p7gz2BVJVBsG7Q';
+const DRIVE_API_KEY = 'AIzaSyAzJ3AH0SdbLRXjQ8hK4p7gz2BVJVBSg7Q';
 function driveDownload(url) {
   const id = driveFileId(url);
   return id ? `https://www.googleapis.com/drive/v3/files/${id}?alt=media&acknowledgeAbuse=true&key=${DRIVE_API_KEY}` : null;
