@@ -23,17 +23,15 @@ function driveDownload(url) {
   const id = driveFileId(url);
   return id ? `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t` : null;
 }
-// Ek tap me Drive download: server (/api/uploads/drive-file) Google se file
-// lekar user ko stream karta hai. ⬇ dabao -> naya tab -> download turant shuru.
-// Koi "Download anyway" nahi, koi warning page nahi.
-// window.open header nahi bhej sakta, isliye JWT ?token= me jata hai (server
-// requireAuth me ise accept karta hai).
+// Ek tap me Drive download: seedha Google se (browser khud download karega).
+// ⬇ dabao -> naya tab -> download turant shuru. Server ko chhua bhi nahi,
+// isliye badi movie se app hang nahi hogi aur bandwidth bhi nahi katega.
+// (Pehle server proxy /api/uploads/drive-file tha — GBs files par wo server
+// ko gira deta tha, isliye seedha link kar diya.)
 function driveOneTapDownload(driveUrl) {
-  const id = driveFileId(driveUrl);
-  if (!id) return;
-  const t = getToken();
-  const q = `id=${encodeURIComponent(id)}` + (t ? `&token=${encodeURIComponent(t)}` : '');
-  window.open(`/api/uploads/drive-file?${q}`, '_blank');
+  const direct = driveDownload(driveUrl);
+  if (!direct) return;
+  window.open(direct, '_blank');
 }
 
 // Drive preview iframe + fullscreen overlay (landscape lock ke saath).
