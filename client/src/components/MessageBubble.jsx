@@ -18,10 +18,12 @@ function drivePreview(url) {
   const id = driveFileId(url);
   return id ? `https://drive.google.com/file/d/${id}/preview` : null;
 }
-// Drive file ka seedha download link (browser khud download kar lega).
+// Drive API se seedha download — virus warning page skip (acknowledgeAbuse).
+// Key sirf Google Drive API tak restricted hai.
+const DRIVE_API_KEY = 'AIzaSyAzJ3AH0SdbLRXjQ8hK4p7gz2BVJVBsG7Q';
 function driveDownload(url) {
   const id = driveFileId(url);
-  return id ? `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t` : null;
+  return id ? `https://www.googleapis.com/drive/v3/files/${id}?alt=media&acknowledgeAbuse=true&key=${DRIVE_API_KEY}` : null;
 }
 // Ek tap me Drive download: seedha Google se (browser khud download karega).
 // ⬇ dabao -> naya tab -> download turant shuru. Server ko chhua bhi nahi,
