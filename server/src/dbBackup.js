@@ -281,6 +281,7 @@ async function restoreFromCloudinary() {
       try { fs.unlinkSync(dbPath); } catch {}
       return false;
     }
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     fs.copyFileSync(best, dbPath);
     try { fs.unlinkSync(best); } catch {}
     const size = fs.statSync(dbPath).size;
